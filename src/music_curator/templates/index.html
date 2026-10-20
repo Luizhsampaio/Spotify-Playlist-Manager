@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Curador Musical | Conexão Spotify</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <span class="eyebrow">SUA BIBLIOTECA, UM PASSO DE CADA VEZ</span>
+      <h1>Curador Musical<span class="dot">.</span></h1>
+      <p class="intro">O primeiro passo é conectar. A curadoria vem depois.</p>
+    </header>
+
+    {% if demo %}
+    <aside class="notice">Demonstração com dados fictícios. Nenhum acesso à sua conta Spotify.</aside>
+    {% endif %}
+
+    <section class="panel" aria-labelledby="connection-title">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">01 / CONEXÃO</span>
+          <h2 id="connection-title">Sua conta Spotify</h2>
+        </div>
+        <span class="badge">{{ "Conexão salva" if connected else "Não conectada" }}</span>
+      </div>
+      <p>Autorize a leitura das suas playlists pelo próprio Spotify.
+        Sua senha nunca passa por esta aplicação.</p>
+
+      {% if not configured %}
+      <div class="setup">
+        <h3>Antes de conectar</h3>
+        <ol>
+          <li>Crie seu aplicativo no <a href="https://developer.spotify.com/dashboard"
+              target="_blank" rel="noreferrer noopener">Spotify Developer Dashboard</a>.</li>
+          <li>Selecione Web API e cadastre o endereço de retorno
+            <code>http://127.0.0.1:8765/callback</code>.</li>
+          <li>Copie o Client ID para <code>SPOTIFY_CLIENT_ID</code> no seu arquivo
+            <code>.env</code> e reinicie a aplicação.</li>
+        </ol>
+        <p>Consulte o guia do projeto para o passo a passo. Não é necessário Client Secret.</p>
+      </div>
+      {% endif %}
+
+      {% if message %}
+      <div class="notice {{ 'error' if error else '' }}" role="{{ 'alert' if error else 'status' }}">
+        {{ message }}
+      </div>
+      {% endif %}
+
+      <div class="actions">
+        {% if not connected %}
+        <form action="/connect" method="post">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" {% if not configured %}disabled{% endif %}>Conectar ao Spotify ↗</button>
+        </form>
+        {% else %}
+        <form action="/playlists" method="post">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit">Carregar playlists</button>
+        </form>
+        <form action="/disconnect" method="post">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="secondary">Desconectar</button>
+        </form>
+        {% endif %}
+      </div>
+      <p class="small">
+        {% if demo %}Nesta demonstração, a conexão fictícia existe apenas na memória.
+        {% else %}A conexão é lembrada no armazenamento seguro do Windows.
+          {% if connected %}O acesso será verificado ao carregar as playlists.{% endif %}
+        {% endif %}
+      </p>
+    </section>
+
+    <section class="library" aria-labelledby="library-title">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">02 / PRIMEIRA CONSULTA</span>
+          <h2 id="library-title">Suas playlists</h2>
+        </div>
+        {% if playlists is not none %}<span class="count">{{ playlists | length }} encontradas</span>{% endif %}
+      </div>
+      {% if playlists is none %}
+      <div class="empty">
+        <span class="empty-icon" aria-hidden="true">♫</span>
+        <h3>Um lugar para a sua música</h3>
+        <p>Conecte sua conta e clique em “Carregar playlists”.<br>
+          Nenhuma playlist será criada ou modificada.</p>
+      </div>
+      {% elif not playlists %}
+      <div class="empty">
+        <h3>Nenhuma playlist disponível</h3>
+        <p>O Spotify não retornou playlists acessíveis para esta conta e aplicativo.</p>
+      </div>
+      {% else %}
+      <ul class="playlist-grid">
+        {% for playlist in playlists %}
+        <li class="playlist">
+          <div class="playlist-icon" aria-hidden="true">♫</div>
+          <h3>{{ playlist.name or "Playlist sem nome" }}</h3>
+          {% if demo %}
+          <span class="small">Playlist fictícia</span>
+          {% else %}
+          <a href="{{ playlist.url }}" target="_blank" rel="noreferrer noopener">Abrir no Spotify ↗</a>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </section>
+
+    <footer>
+      <span class="badge">Somente leitura</span>
+      <p>{% if demo %}Dados fictícios de demonstração.
+        {% else %}Dados fornecidos pelo Spotify.{% endif %}
+        Visualização local, sem envio para IA.</p>
+      <p>Desconectar apaga a conexão neste computador. Para revogar a autorização também no Spotify,
+        use <a href="https://www.spotify.com/account/apps/" target="_blank"
+          rel="noreferrer noopener">Aplicativos da sua conta</a>.</p>
+    </footer>
+  </main>
+</body>
+</html>
