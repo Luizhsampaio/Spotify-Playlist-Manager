@@ -21,8 +21,16 @@ def csrf(browser: TestClient) -> str:
 
 
 def login(browser: TestClient) -> None:
-    response = browser.post("/connect", data={"csrf": csrf(browser)}, headers=HEADERS)
+    response = browser.post(
+        "/connect", data={"csrf": csrf(browser)}, headers=HEADERS, follow_redirects=False
+    )
+    response = browser.get(callback_url(response.headers["location"]))
     assert "Conexao salva" in response.text
+
+
+def callback_url(location: str) -> str:
+    state = parse_qs(urlsplit(location).query)["state"][0]
+    return f"/callback?state={state}&code=synthetic-code"
 
 
 def test_initial_screen_and_cookie(browser: TestClient) -> None:
@@ -30,7 +38,7 @@ def test_initial_screen_and_cookie(browser: TestClient) -> None:
     assert response.status_code == 200
     assert "Conectar ao Spotify" in response.text
     assert "Carregar playlists</button>" not in response.text
-    assert "Demonstração" in response.text
+    assert "Demonstração" not in response.text
     cookie = response.headers["set-cookie"].lower()
     assert "httponly" in cookie and "samesite=lax" in cookie
     assert response.headers["cache-control"] == "no-store"
@@ -93,7 +101,7 @@ def test_callback_invalid_and_replay(browser: TestClient) -> None:
     response = browser.post(
         "/connect", data={"csrf": token}, headers=HEADERS, follow_redirects=False
     )
-    callback = response.headers["location"]
+    callback = callback_url(response.headers["location"])
     callback_response = browser.get(
         "/callback?state=wrong&code=synthetic-code", follow_redirects=False
     )
@@ -127,7 +135,7 @@ def test_callback_expiry(browser: TestClient, monkeypatch: pytest.MonkeyPatch) -
 
     original = time.monotonic()
     monkeypatch.setattr("music_curator.web.time.monotonic", lambda: original + 601)
-    page = browser.get(response.headers["location"])
+    page = browser.get(callback_url(response.headers["location"]))
     assert "Autorizacao invalida ou expirada" in page.text
 
 
@@ -139,7 +147,7 @@ def test_successful_callback_is_single_use(browser: TestClient) -> None:
     response = browser.post(
         "/connect", data={"csrf": csrf(browser)}, headers=HEADERS, follow_redirects=False
     )
-    callback = response.headers["location"]
+    callback = callback_url(response.headers["location"])
     assert "Conexao salva com seguranca" in browser.get(callback).text
     assert "Autorizacao invalida" in browser.get(callback).text
 
@@ -149,7 +157,7 @@ def test_disconnect_invalidates_pending_login(browser: TestClient) -> None:
     response = browser.post(
         "/connect", data={"csrf": csrf(browser)}, headers=HEADERS, follow_redirects=False
     )
-    callback = response.headers["location"]
+    callback = callback_url(response.headers["location"])
     browser.post("/disconnect", data={"csrf": csrf(browser)}, headers=HEADERS)
     assert "Conexao salva com seguranca" not in browser.get(callback).text
 

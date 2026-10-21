@@ -1,0 +1,72 @@
+{% extends "prototype_base.html" %}
+{% block title %}Meu espaço — Curador Musical{% endblock %}
+{% block body_class %}dashboard-page{% endblock %}
+{% block body %}
+<div class="app-shell">
+  <aside class="sidebar">
+    {{ brand() }}
+    <span class="sidebar-label">SEU ESPAÇO</span>
+    <nav class="app-nav" aria-label="Navegação do painel">
+      <a class="active" href="/app" aria-current="page">{{ symbol("grid") }} Visão geral</a>
+      <a href="#playlists">{{ symbol("music") }} Minhas playlists <span class="nav-count">{{ playlists | length }}</span></a>
+      <span class="nav-disabled" aria-disabled="true">{{ symbol("spark") }} Curadoria <span class="soon">Em breve</span></span>
+    </nav>
+    <div class="sidebar-note">{{ symbol("shield") }}<strong>Sua coleção, suas escolhas.</strong>
+      <p>Nenhuma mudança é feita no Spotify neste protótipo.</p></div>
+    <div class="sidebar-account">
+      <span class="avatar">D</span><div><strong>Conta de demonstração</strong><small>Sessão simulada</small></div>
+    </div>
+    <form method="post" action="/demo/sair">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="logout-button" type="submit">{{ symbol("logout") }} Sair da ferramenta</button>
+    </form>
+  </aside>
+  <div class="app-main">
+    <header class="app-topbar"><span>Meu espaço <span class="breadcrumb">/ Visão geral</span></span>
+      <span class="session-badge"><span class="status-dot"></span> Spotify · simulado</span></header>
+    <main id="conteudo" class="dashboard-content">
+      <div class="demo-banner" role="note">{{ symbol("spark") }}
+        <span><strong>Modo protótipo.</strong> Tudo aqui é fictício. Sua conta Spotify não está conectada.</span>
+        <a href="/">Ver a Home {{ symbol("arrow") }}</a>
+      </div>
+      <div class="dashboard-heading">
+        <div><span class="eyebrow">BEM-VINDO AO SEU ESPAÇO</span>
+          <h1>Sua coleção começa aqui<span class="brand-dot">.</span></h1>
+          <p>Um novo jeito de olhar para as playlists que acompanham você.</p></div>
+      </div>
+      <section class="welcome-card" aria-labelledby="welcome-title">
+        <div><span class="pill">SUA BIBLIOTECA, EM PRIMEIRO LUGAR</span>
+          <h2 id="welcome-title">Cada playlist conta<br>um pouco da sua história.</h2>
+          <p>Explore sua coleção. Redescubra um favorito.<br>O próximo passo fica por sua conta.</p>
+          <a class="button button-cream" href="#playlists">Explorar minhas playlists {{ symbol("arrow") }}</a>
+        </div>
+        <div class="dashboard-record" aria-hidden="true"><div class="record"><div class="record-label">{{ symbol("music") }}</div></div></div>
+      </section>
+      <section class="summary-grid" aria-label="Resumo da demonstração">
+        <article>{{ symbol("grid") }}<div><strong>{{ playlists | length }}</strong><span>Playlists de exemplo</span></div></article>
+        <article>{{ symbol("spotify") }}<div><strong>Spotify</strong><span>Origem prevista da biblioteca</span></div></article>
+        <article>{{ symbol("shield") }}<div><strong>Somente leitura</strong><span>Você mantém o controle</span></div></article>
+      </section>
+      <section id="playlists" class="playlists-section">
+        <div class="section-intro">
+          <div><h2>Minhas playlists</h2><p>Uma prévia de como sua biblioteca vai aparecer por aqui.</p></div>
+          <span class="subtle-tag">{{ playlists | length }} playlists fictícias</span>
+        </div>
+        <ul class="collection-grid">
+          {% for playlist in playlists %}
+          <li class="collection-card">
+            <div class="cover-art art-{{ loop.index }}" aria-hidden="true">
+              <span class="cover-orbit"></span><span class="cover-orbit second"></span>
+              {{ symbol("music") }}<span class="cover-index">VOL. 0{{ loop.index }}</span>
+            </div>
+            <h3>{{ playlist.name }}</h3><p>Playlist de demonstração</p>
+            <span class="card-label">{{ symbol("spotify") }} Dados fictícios</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+      <footer class="dashboard-footer"><span>Sem dados reais. Sem alterações no Spotify.</span><span>Curador Musical · Protótipo</span></footer>
+    </main>
+  </div>
+</div>
+{% endblock %}

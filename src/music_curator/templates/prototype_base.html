@@ -1,0 +1,32 @@
+{% macro symbol(name, class_name="") -%}
+<svg class="icon {{ class_name }}" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  {% if name == "arrow" %}<path d="M5 12h14m-6-6 6 6-6 6"/>
+  {% elif name == "music" %}<path d="M9 18V5l11-2v13M9 8l11-2"/><ellipse cx="6" cy="18" rx="3" ry="3"/><ellipse cx="17" cy="16" rx="3" ry="3"/>
+  {% elif name == "grid" %}<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>
+  {% elif name == "shield" %}<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/>
+  {% elif name == "logout" %}<path d="M9 4H4v16h5m5-12 4 4-4 4M8 12h12"/>
+  {% elif name == "spark" %}<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z"/>
+  {% elif name == "spotify" %}<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M6 9c4-1.5 8-1.2 12 1M7 12c3-1 7-1 10 1M8 15c2-.6 5-.4 8 1" stroke="var(--spotify-lines, white)"/>
+  {% endif %}
+</svg>
+{%- endmacro %}
+{% macro brand() -%}
+<a class="brand" href="/" aria-label="Curador Musical, início">
+  <span class="brand-mark">{{ symbol("music") }}</span>
+  <span>curador<span class="brand-light">musical</span><span class="brand-dot">.</span></span>
+</a>
+{%- endmacro %}
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Curador Musical{% endblock %}</title>
+  <link rel="stylesheet" href="/static/prototype.css">
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+  {% block body %}{% endblock %}
+</body>
+</html>

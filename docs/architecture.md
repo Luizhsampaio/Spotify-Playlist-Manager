@@ -21,7 +21,8 @@ Recusar backends alternativos/inseguros em vez de fazer fallback para texto.
 **Motivo:** lembrar a conexão foi uma escolha expressa do usuário.
 
 **Consequência:** a execução real desta entrega é suportada no Windows. A
-demonstração é isolada, usa transporte HTTP simulado e credenciais em memória.
+demonstração visual é isolada e não acessa transporte HTTP ou credenciais.
+Os testes da integração real usam transporte HTTP simulado e credenciais fictícias.
 O modelo de estado em arquivos do produto será desenvolvido somente com o catálogo.
 
 ## ADR 0003 — Somente leitura e controle humano
@@ -54,9 +55,21 @@ do escopo e sujeitos a análise própria antes da implementação.
 - `spotify.py`: OAuth, renovação, paginação, timeout e limites de requisições.
 - `web.py`: sessão local, callback, CSRF e apresentação.
 - `cli.py`: inicialização estritamente loopback, sem access logs sensíveis.
-- `demo.py`: transporte e credenciais sintéticos, ativados explicitamente.
+- `demo.py`: playlists fictícias do protótipo e utilitários sintéticos de testes.
 
 Um lock no cliente serializa operações de token/leitura/desconexão na instância.
 Não são permitidas instâncias concorrentes na mesma porta. Os dados da API são
 validados antes de exibir, templates escapam nomes e URLs de playlist são
 construídas a partir de IDs validados.
+
+## Incremento visual — Experiência SaaS somente no protótipo
+
+`serve --demo` apresenta Home (`/`), entrada (`/entrar`) e painel (`/app`).
+Os POSTs `/demo/entrar` e `/demo/sair` apenas mudam a sessão temporária daquele
+navegador, com validação de origem e CSRF. Não existe cadastro ou base de usuários.
+O painel usa exclusivamente playlists sintéticas; não consulta nem exibe perfil real.
+
+As rotas de OAuth e leitura reais não são registradas no modo de protótipo.
+O modo real mantém sua interface e comportamento anteriores. O visual SaaS não
+habilita hospedagem nem isolamento de contas reais: autenticação, ciclo de vida
+de tokens por usuário e revisão para execução hospedada ficam para outra entrega.

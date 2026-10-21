@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import parse_qs
 
 import httpx
 from fastapi import FastAPI, Request
@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from music_curator.config import ORIGIN, Settings
 from music_curator.credentials import CredentialStore, WindowsCredentialStore
+from music_curator.demo import PROTOTYPE_PLAYLISTS
 from music_curator.models import AppError, Playlist
 from music_curator.spotify import SpotifyClient
 
@@ -35,6 +36,7 @@ class BrowserSession:
     expires_at: float
     pending: PendingLogin | None = None
     message: str | None = None
+    prototype_signed_in: bool = False
 
 
 def create_app(
@@ -169,6 +171,62 @@ def create_app(
             return None
         return session
 
+    if demo:
+
+        def prototype_page(request: Request, name: str) -> Response:
+            sid, session, created = session_for(request)
+            if name == "dashboard" and not session.prototype_signed_in:
+                return RedirectResponse("/entrar", status_code=303)
+            if name == "login" and session.prototype_signed_in:
+                return RedirectResponse("/app", status_code=303)
+            response = templates.TemplateResponse(
+                request=request,
+                name=f"prototype_{name}.html",
+                context={
+                    "csrf": session.csrf,
+                    "signed_in": session.prototype_signed_in,
+                    "playlists": PROTOTYPE_PLAYLISTS,
+                },
+            )
+            if created:
+                response.set_cookie(
+                    COOKIE, sid, httponly=True, samesite="lax", max_age=SESSION_SECONDS
+                )
+            return response
+
+        @app.get("/")
+        async def prototype_home(request: Request) -> Response:
+            return prototype_page(request, "home")
+
+        @app.get("/entrar")
+        async def prototype_login(request: Request) -> Response:
+            return prototype_page(request, "login")
+
+        @app.get("/app")
+        async def prototype_dashboard(request: Request) -> Response:
+            return prototype_page(request, "dashboard")
+
+        @app.post("/demo/entrar")
+        async def prototype_enter(request: Request) -> Response:
+            session = await verified_session(request)
+            if session is None:
+                return PlainTextResponse("Sessao invalida. Reabra a pagina.", status_code=403)
+            session.prototype_signed_in = True
+            session.csrf = secrets.token_urlsafe(32)
+            return RedirectResponse("/app", status_code=303)
+
+        @app.post("/demo/sair")
+        async def prototype_leave(request: Request) -> Response:
+            session = await verified_session(request)
+            if session is None:
+                return PlainTextResponse("Sessao invalida. Reabra a pagina.", status_code=403)
+            sessions.pop(request.cookies.get(COOKIE, ""), None)
+            response = RedirectResponse("/", status_code=303)
+            response.delete_cookie(COOKIE)
+            return response
+
+        return app
+
     @app.get("/", response_class=HTMLResponse)
     async def home(request: Request) -> Response:
         sid, session, created = session_for(request)
@@ -188,8 +246,6 @@ def create_app(
         except AppError as exc:
             return render(request, session, message=str(exc), error=True, status_code=400)
         session.pending = PendingLogin(state, verifier, time.monotonic() + 600)
-        if demo:
-            url = "/callback?" + urlencode({"state": state, "code": "synthetic-code"})
         return RedirectResponse(url, status_code=303)
 
     @app.get("/callback")

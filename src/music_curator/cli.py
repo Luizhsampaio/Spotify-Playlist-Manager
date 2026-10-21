@@ -1,12 +1,10 @@
 import logging
 
-import httpx
 import typer
 import uvicorn
 from pydantic import ValidationError
 
 from music_curator.config import ORIGIN, Settings, load_settings
-from music_curator.demo import DemoCredentialStore, demo_response
 from music_curator.web import create_app
 
 cli = typer.Typer(help="Curadoria musical pessoal, local e somente leitura.")
@@ -20,12 +18,7 @@ def serve(
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     if demo:
-        app = create_app(
-            Settings(client_id="0" * 32),
-            store=DemoCredentialStore(),
-            http=httpx.AsyncClient(transport=httpx.MockTransport(demo_response)),
-            demo=True,
-        )
+        app = create_app(Settings(), demo=True)
     else:
         try:
             settings = load_settings()

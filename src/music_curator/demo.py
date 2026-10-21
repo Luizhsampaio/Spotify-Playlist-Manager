@@ -1,6 +1,16 @@
 import httpx
 
+from music_curator.models import Playlist
 from music_curator.spotify import TOKEN_URL
+
+PROTOTYPE_PLAYLISTS = [
+    Playlist(id="syntheticRock", name="Horizontes de guitarra"),
+    Playlist(id="syntheticJazz", name="Café com improviso"),
+    Playlist(id="syntheticAmbient", name="Pausa para respirar"),
+    Playlist(id="syntheticDisco", name="Depois das seis"),
+    Playlist(id="syntheticIndie", name="Entre descobertas"),
+    Playlist(id="syntheticSoul", name="Domingo sem pressa"),
+]
 
 
 class DemoCredentialStore:

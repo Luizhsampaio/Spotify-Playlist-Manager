@@ -51,9 +51,22 @@ retorno sem atualizar também a configuração da aplicação e o painel Spotify
 .\.venv\Scripts\python.exe -m music_curator serve --demo
 ```
 
-Abra o mesmo endereço e use os mesmos botões. Um aviso identifica a demonstração:
-todos os dados são fictícios, não há chamadas de rede ao Spotify nem credenciais
-salvas no Windows. Encerre a demonstração antes de iniciar a versão real.
+Abra **http://127.0.0.1:8765** para explorar o **protótipo com aparência SaaS**:
+
+1. **Home:** apresentação do produto, explicação da proposta e botão **Entrar**.
+2. **Entrar:** botão **Continuar com Spotify**, sem formulário de cadastro ou senha.
+3. **Meu espaço:** painel com navegação lateral, resumo e seis playlists fictícias.
+4. **Sair da ferramenta:** encerra a sessão simulada e volta para a Home.
+
+O botão do Spotify **apenas simula a entrada**; não abre uma autorização real.
+Não há base de usuários, consulta à API, acesso ao cofre do Windows ou persistência
+da biblioteca. Somente o estado de navegação fica temporariamente na memória,
+separado por sessão do navegador. Curadoria aparece como **Em breve**, sem ação.
+
+Essa é uma proposta visual para uma futura experiência de entrada com Spotify:
+**não é uma aplicação SaaS hospedada nem uma implementação de autenticação
+multiusuário**. O modo real, sem `--demo`, continua com a interface local anterior.
+Encerre a demonstração antes de iniciar a versão real na mesma porta.
 
 ## Limites desta entrega
 

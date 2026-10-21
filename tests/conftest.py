@@ -19,6 +19,6 @@ def store() -> DemoCredentialStore:
 @pytest.fixture
 def browser(store: DemoCredentialStore) -> Iterator[TestClient]:
     http = httpx.AsyncClient(transport=httpx.MockTransport(demo_response))
-    app = create_app(Settings(client_id=CLIENT_ID), store=store, http=http, demo=True)
+    app = create_app(Settings(client_id=CLIENT_ID), store=store, http=http)
     with TestClient(app, base_url=ORIGIN) as client:
         yield client
