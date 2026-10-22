@@ -14,7 +14,7 @@ HEADERS = {"Origin": ORIGIN}
 
 
 def csrf(browser: TestClient) -> str:
-    page = browser.get("/")
+    page = browser.get("/entrar")
     match = re.search(r'name="csrf" value="([^"]+)"', page.text)
     assert match
     return match[1]
@@ -36,7 +36,8 @@ def callback_url(location: str) -> str:
 def test_initial_screen_and_cookie(browser: TestClient) -> None:
     response = browser.get("/")
     assert response.status_code == 200
-    assert "Conectar ao Spotify" in response.text
+    assert 'href="/entrar"' in response.text
+    assert "Continuar com Spotify" in browser.get("/entrar").text
     assert "Carregar playlists</button>" not in response.text
     assert "Demonstração" not in response.text
     cookie = response.headers["set-cookie"].lower()
@@ -44,7 +45,36 @@ def test_initial_screen_and_cookie(browser: TestClient) -> None:
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["referrer-policy"] == "same-origin"
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
-    assert browser.get("/static/style.css").status_code == 200
+    assert browser.get("/static/prototype.css").status_code == 200
+
+
+@pytest.mark.parametrize("signed_in", [False, True])
+def test_local_home_omits_removed_sections(browser: TestClient, signed_in: bool) -> None:
+    if signed_in:
+        login(browser)
+    page = browser.get("/")
+    assert page.status_code == 200
+    for removed in (
+        'id="como-funciona"',
+        'id="seu-espaco"',
+        'href="#seu-espaco"',
+        "Da sua conta ao seu espaço.",
+        "Entre com Spotify",
+        "Conheça seu espaço",
+        "Continue no controle",
+        "Um espaço seu.",
+        "Acessar meu espaço",
+        'class="prototype-strip"',
+        "Seu espaço local",
+        "Entrada pelo Spotify. Nenhuma playlist é consultada ou alterada neste painel.",
+    ):
+        assert removed not in page.text
+    assert 'href="#como-funciona">Como funciona</a>' in page.text
+    assert "Conheça a ideia" in page.text
+    assert 'class="hero wrap"' in page.text
+    assert '<footer class="site-footer wrap">' in page.text
+    assert "Feito para ouvir sua coleção de um jeito novo." in page.text
+    assert page.text.count('href="/app"' if signed_in else 'href="/entrar"') == 2
 
 
 def test_full_synthetic_flow_and_disconnect(
@@ -61,7 +91,7 @@ def test_full_synthetic_flow_and_disconnect(
     response = browser.post("/disconnect", data={"csrf": csrf(browser)}, headers=HEADERS)
     assert response.status_code == 200
     assert store.token is None
-    assert "Conectar ao Spotify" in response.text
+    assert 'href="/entrar"' in response.text
     response = browser.post("/playlists", data={"csrf": csrf(browser)}, headers=HEADERS)
     assert response.status_code == 502
     assert "Conecte sua conta" in response.text
@@ -96,6 +126,19 @@ def test_host_and_cross_site_blocked(browser: TestClient) -> None:
     )
 
 
+@pytest.mark.parametrize("path", ["/", "/entrar", "/app"])
+def test_returning_navigation_can_reach_product_pages(browser: TestClient, path: str) -> None:
+    login(browser)
+    headers = {
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document",
+    }
+    assert browser.get(path, headers=headers).status_code == 200
+    assert browser.get(path, headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+    assert browser.post("/disconnect", headers=headers).status_code == 403
+
+
 def test_callback_invalid_and_replay(browser: TestClient) -> None:
     token = csrf(browser)
     response = browser.post(
@@ -106,10 +149,10 @@ def test_callback_invalid_and_replay(browser: TestClient) -> None:
         "/callback?state=wrong&code=synthetic-code", follow_redirects=False
     )
     assert callback_response.headers["referrer-policy"] == "no-referrer"
-    response = browser.get("/")
+    response = browser.get("/entrar")
     assert "Autorizacao invalida" in response.text
     assert "Autorizacao invalida" in browser.get(callback).text
-    assert "Conectar ao Spotify" in browser.get("/").text
+    assert "Continuar com Spotify" in browser.get("/entrar").text
     login(browser)
     assert "Autorizacao invalida" in browser.get(callback).text
 
@@ -122,7 +165,7 @@ def test_callback_cancelled_and_missing_code(browser: TestClient) -> None:
         )
         state = parse_qs(urlsplit(response.headers["location"]).query)["state"][0]
         page = browser.get(f"/callback?state={state}&{suffix}")
-        assert "Conectar ao Spotify" in page.text
+        assert "Continuar com Spotify" in page.text
         assert ("cancelada" if suffix else "autorizacao valida") in page.text
 
 
@@ -162,11 +205,19 @@ def test_disconnect_invalidates_pending_login(browser: TestClient) -> None:
     assert "Conexao salva com seguranca" not in browser.get(callback).text
 
 
-def test_no_configuration_shows_help() -> None:
+def test_no_configuration_hides_setup_banner_and_blocks_connection() -> None:
     app = create_app(Settings(), store=DemoCredentialStore())
     with TestClient(app, base_url=ORIGIN) as client:
-        page = client.get("/")
-        assert "Antes de conectar" in page.text
+        page = client.get("/entrar")
+        assert page.status_code == 200
+        assert "Antes de conectar" not in page.text
+        assert "Configure o Client ID" not in page.text
+        assert "SPOTIFY_CLIENT_ID" not in page.text
+        assert "http://127.0.0.1:8765/callback" not in page.text
+        assert "Não é necessário Client Secret." not in page.text
+        assert "Você entra pelo site oficial do Spotify." in page.text
+        assert "Não pedimos sua senha Spotify." in page.text
+        assert "Continuar com Spotify" in page.text
         assert "disabled" in page.text
         response = client.post("/connect", data={"csrf": csrf(client)}, headers=HEADERS)
         assert response.status_code == 400
@@ -208,34 +259,6 @@ def test_rendering_escapes_names_and_handles_empty(store: DemoCredentialStore, e
             assert "https://open.spotify.com/playlist/safeId" in page.text
 
 
-def test_storage_failure_is_explicit() -> None:
-    class UnavailableStore(DemoCredentialStore):
-        def load(self) -> str | None:
-            raise AppError("Armazenamento seguro indisponivel.")
-
-    app = create_app(Settings(client_id="0" * 32), store=UnavailableStore())
-    with TestClient(app, base_url=ORIGIN) as client:
-        response = client.get("/")
-        assert response.status_code == 503
-        assert "Armazenamento seguro indisponivel" in response.text
-        assert 'role="alert"' in response.text
-
-
-def test_disconnect_failure_does_not_claim_success() -> None:
-    class CannotDeleteStore(DemoCredentialStore):
-        def delete(self) -> None:
-            raise AppError("Nao foi possivel apagar a credencial.")
-
-    store = CannotDeleteStore()
-    store.save("synthetic-refresh")
-    app = create_app(Settings(client_id="0" * 32), store=store)
-    with TestClient(app, base_url=ORIGIN) as client:
-        response = client.post("/disconnect", data={"csrf": csrf(client)}, headers=HEADERS)
-        assert response.status_code == 503
-        assert "Nao foi possivel apagar" in response.text
-        assert store.token is not None
-
-
 def test_api_failure_is_not_empty_list() -> None:
     store = DemoCredentialStore()
     store.save("synthetic-refresh")
@@ -246,3 +269,137 @@ def test_api_failure_is_not_empty_list() -> None:
         assert response.status_code == 502
         assert "Nenhuma playlist disponível" not in response.text
         assert "Horizontes de guitarra" not in response.text
+
+
+def test_real_dashboard_requires_saved_connection(browser: TestClient) -> None:
+    response = browser.get("/app", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/entrar"
+    page = browser.get("/entrar")
+    assert 'action="/connect"' in page.text
+    assert 'type="password"' not in page.text
+    assert 'type="email"' not in page.text
+    assert "simula a entrada" not in page.text
+
+
+def test_real_navigation_and_login_never_read_library(store: DemoCredentialStore) -> None:
+    calls: list[str] = []
+
+    def tokens_only(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url == "https://accounts.spotify.com/api/token"
+        calls.append(request.url.path)
+        return demo_response(request)
+
+    app = create_app(
+        Settings(client_id="0" * 32),
+        store=store,
+        http=httpx.AsyncClient(transport=httpx.MockTransport(tokens_only)),
+    )
+    with TestClient(app, base_url=ORIGIN) as client:
+        assert client.get("/").status_code == 200
+        assert client.get("/app").url.path == "/entrar"
+        token = csrf(client)
+        response = client.post(
+            "/connect", data={"csrf": token}, headers=HEADERS, follow_redirects=False
+        )
+        response = client.get(callback_url(response.headers["location"]))
+        assert response.url.path == "/app"
+        assert "Conexao salva com seguranca" in response.text
+        assert response.headers["referrer-policy"] == "same-origin"
+        for path in ["/", "/entrar", "/app"]:
+            page = client.get(path)
+            assert page.status_code == 200
+            assert 'action="/playlists"' not in page.text
+            assert "Carregar playlists" not in page.text
+            assert "collection-card" not in page.text
+            assert "synthetic-access" not in page.text
+            assert "synthetic-refresh" not in page.text
+        dashboard = client.get("/app")
+        assert "Spotify · conexão salva" in dashboard.text
+        assert "Playlists e automações ainda não estão disponíveis" in dashboard.text
+        assert "não comprova" in dashboard.text
+        assert "Conta de demonstração" not in dashboard.text
+        assert "Modo protótipo" not in dashboard.text
+        assert "Desconectar Spotify" in dashboard.text
+        assert re.findall(r'<form[^>]+action="([^"]+)"', dashboard.text) == ["/disconnect"]
+        assert client.get("/entrar", follow_redirects=False).headers["location"] == "/app"
+        assert "Abrir painel" in client.get("/").text
+        assert client.post("/disconnect", data={"csrf": token}, headers=HEADERS).status_code == 403
+        response = client.post("/disconnect", data={"csrf": csrf(client)}, headers=HEADERS)
+        assert response.url.path == "/"
+        assert "Abrir painel" not in response.text
+        assert store.token is None
+        assert client.get("/app").url.path == "/entrar"
+    assert calls == ["/api/token"]
+
+
+def test_saved_connection_opens_dashboard_without_remote_validation(
+    store: DemoCredentialStore,
+) -> None:
+    store.save("synthetic-refresh")
+
+    def forbidden_request(request: httpx.Request) -> httpx.Response:
+        pytest.fail("Saved connection navigation must not access Spotify")
+
+    app = create_app(
+        Settings(client_id="0" * 32),
+        store=store,
+        http=httpx.AsyncClient(transport=httpx.MockTransport(forbidden_request)),
+    )
+    with TestClient(app, base_url=ORIGIN) as client:
+        assert "Abrir painel" in client.get("/").text
+        assert client.get("/entrar").url.path == "/app"
+        assert "conexão salva" in client.get("/app").text
+
+
+@pytest.mark.parametrize("status", [400, 500])
+def test_failed_token_exchange_stays_on_login(store: DemoCredentialStore, status: int) -> None:
+    app = create_app(
+        Settings(client_id="0" * 32),
+        store=store,
+        http=httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(status))),
+    )
+    with TestClient(app, base_url=ORIGIN) as client:
+        response = client.post(
+            "/connect", data={"csrf": csrf(client)}, headers=HEADERS, follow_redirects=False
+        )
+        page = client.get(callback_url(response.headers["location"]))
+        assert page.url.path == "/entrar"
+        assert 'role="alert"' in page.text
+        assert "Conexao salva" not in page.text
+        assert store.token is None
+        assert client.get("/app").url.path == "/entrar"
+
+
+@pytest.mark.parametrize("path", ["/", "/entrar", "/app"])
+def test_product_storage_failure_is_explicit(path: str) -> None:
+    class UnavailableStore(DemoCredentialStore):
+        def load(self) -> str | None:
+            raise AppError("Armazenamento seguro indisponivel.")
+
+    app = create_app(Settings(client_id="0" * 32), store=UnavailableStore())
+    with TestClient(app, base_url=ORIGIN) as client:
+        page = client.get(path)
+        assert page.status_code == 503
+        assert 'role="alert"' in page.text
+        assert "Armazenamento seguro indisponivel" in page.text
+        assert "Spotify · conexão salva" not in page.text
+
+
+def test_failed_disconnect_keeps_dashboard_and_connection() -> None:
+    class CannotDeleteStore(DemoCredentialStore):
+        def delete(self) -> None:
+            raise AppError("Nao foi possivel apagar a credencial.")
+
+    store = CannotDeleteStore()
+    store.save("synthetic-refresh")
+    app = create_app(Settings(client_id="0" * 32), store=store)
+    with TestClient(app, base_url=ORIGIN) as client:
+        page = client.post("/disconnect", data={"csrf": csrf(client)}, headers=HEADERS)
+        assert page.status_code == 503
+        assert 'role="alert"' in page.text
+        assert "Nao foi possivel apagar" in page.text
+        assert "Desconectar Spotify" in page.text
+        assert store.token is not None
+        assert "Spotify · conexão salva" in client.get("/app").text

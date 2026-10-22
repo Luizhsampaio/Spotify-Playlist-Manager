@@ -17,6 +17,11 @@
   <span>curador<span class="brand-light">musical</span><span class="brand-dot">.</span></span>
 </a>
 {%- endmacro %}
+{% macro feedback() -%}
+{% if message %}
+<div class="feedback {{ 'feedback-error' if error else '' }}" role="{{ 'alert' if error else 'status' }}">{{ message }}</div>
+{% endif %}
+{%- endmacro %}
 <!doctype html>
 <html lang="pt-BR">
 <head>

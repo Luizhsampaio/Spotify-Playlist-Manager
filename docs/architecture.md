@@ -62,14 +62,36 @@ Não são permitidas instâncias concorrentes na mesma porta. Os dados da API s�
 validados antes de exibir, templates escapam nomes e URLs de playlist são
 construídas a partir de IDs validados.
 
-## Incremento visual — Experiência SaaS somente no protótipo
+## Incremento visual — Interface SaaS local com OAuth
 
-`serve --demo` apresenta Home (`/`), entrada (`/entrar`) e painel (`/app`).
-Os POSTs `/demo/entrar` e `/demo/sair` apenas mudam a sessão temporária daquele
+Os modos real e `serve --demo` compartilham os templates e CSS da Landing Page
+(`/`), entrada (`/entrar`) e painel (`/app`), com textos e ações específicos.
+O painel apresenta somente a estrutura visual: não lista playlists, não consulta
+perfil ou biblioteca, nem oferece automações. Não há frontend separado.
+
+No modo real, `/connect` inicia o OAuth existente. Um callback bem-sucedido
+rotaciona o token CSRF e leva ao painel; cancelamentos e falhas levam à entrada
+com mensagem explícita. O callback continua temporário, vinculado à sessão e de
+uso único. Navegações de documento retornando do Spotify podem chegar às páginas
+do produto; requisições externas que não são navegação continuam bloqueadas.
+
+Sem credencial salva, `/app` encaminha à entrada. A presença de uma credencial no
+cofre permite abrir o painel novamente, mas não comprova validade atual da
+autorização e não causa renovação remota. A interface distingue conexão salva
+de autorização validada, sem nome ou email inventados. **Desconectar Spotify**
+apaga a credencial local e invalida todas as sessões e autorizações pendentes;
+falhas de exclusão aparecem no painel sem anunciar sucesso.
+
+A capacidade de leitura existente no cliente e no POST `/playlists` é preservada,
+com seus testes, mas não tem acionador na nova interface. Não há consulta de
+playlists em nenhuma navegação ou callback.
+
+No demo, os POSTs `/demo/entrar` e `/demo/sair` apenas mudam a sessão temporária daquele
 navegador, com validação de origem e CSRF. Não existe cadastro ou base de usuários.
-O painel usa exclusivamente playlists sintéticas; não consulta nem exibe perfil real.
+O painel usa a mesma estrutura visual, sem listas, cofre ou chamadas externas.
+As ilustrações públicas usam exemplos fictícios, não dados da biblioteca.
 
 As rotas de OAuth e leitura reais não são registradas no modo de protótipo.
-O modo real mantém sua interface e comportamento anteriores. O visual SaaS não
+As rotas de simulação também não são registradas no modo real. O visual SaaS não
 habilita hospedagem nem isolamento de contas reais: autenticação, ciclo de vida
 de tokens por usuário e revisão para execução hospedada ficam para outra entrega.

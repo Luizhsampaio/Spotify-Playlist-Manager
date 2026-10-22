@@ -5,13 +5,13 @@
   {{ brand() }}
   <nav aria-label="Navegação principal">
     <a class="nav-link" href="#como-funciona">Como funciona</a>
-    <a class="nav-link" href="#seu-espaco">Seu espaço</a>
     <a class="button button-small button-dark" href="{{ '/app' if signed_in else '/entrar' }}">
       {{ "Abrir painel" if signed_in else "Entrar" }} {{ symbol("arrow") }}
     </a>
   </nav>
 </header>
 <main id="conteudo">
+  <div class="wrap">{{ feedback() }}</div>
   <section class="hero wrap">
     <div class="hero-copy">
       <span class="pill"><span class="status-dot"></span> UM NOVO OLHAR PARA SUA BIBLIOTECA</span>
@@ -19,7 +19,7 @@
       <p class="hero-description">Um lugar para redescobrir suas playlists e dar mais sentido
         à sua coleção. Comece com a conta que você já usa para ouvir música.</p>
       <div class="hero-actions">
-        <a class="button button-green" href="/entrar">Entrar com Spotify {{ symbol("arrow") }}</a>
+        <a class="button button-green" href="{{ '/app' if signed_in else '/entrar' }}">{{ "Abrir painel" if signed_in else "Entrar com Spotify" }} {{ symbol("arrow") }}</a>
         <a class="text-link" href="#como-funciona">Conheça a ideia <span aria-hidden="true">↓</span></a>
       </div>
       <p class="caption">{{ symbol("shield") }} Sem nova senha. Sem criar outra conta.</p>
@@ -40,39 +40,10 @@
       <span class="art-footnote">PRÉVIA COM DADOS FICTÍCIOS</span>
     </div>
   </section>
-  <div class="prototype-strip"><span class="status-dot"></span>
-    Protótipo navegável <span class="strip-divider">/</span>
-    Explore com dados fictícios. Nenhuma conexão real com o Spotify.
-  </div>
-  <section id="como-funciona" class="how-section wrap">
-    <div class="section-intro">
-      <div><span class="eyebrow">MENOS COMPLICAÇÃO, MAIS MÚSICA</span><h2>Da sua conta ao seu espaço.</h2></div>
-      <p>Sem começar do zero.<br>Sua biblioteca é o ponto de partida.</p>
-    </div>
-    <div class="steps">
-      <article><span class="step-number">01</span>{{ symbol("spotify") }}
-        <h3>Entre com Spotify</h3><p>A proposta é usar sua própria conta. Sem cadastro separado, sem mais uma senha.</p></article>
-      <article><span class="step-number">02</span>{{ symbol("grid") }}
-        <h3>Encontre suas playlists</h3><p>Um painel simples para visualizar o que vem da sua conta enquanto estiver conectado.</p></article>
-      <article><span class="step-number">03</span>{{ symbol("shield") }}
-        <h3>Continue no controle</h3><p>Você escolhe quando entrar e sair. Este protótipo não altera nada no Spotify.</p></article>
-    </div>
-  </section>
-  <section id="seu-espaco" class="space-section wrap">
-    <div class="space-card">
-      <span class="space-icon">{{ symbol("spark") }}</span>
-      <div><span class="eyebrow">FEITO PARA A SUA COLEÇÃO</span>
-        <h2>Um espaço seu.<br>Não mais uma rede social.</h2>
-        <p>A experiência parte da sua conta Spotify, sem uma base própria de usuários.
-          A organização musical será construída um recurso de cada vez.</p>
-      </div>
-      <a class="button button-dark" href="/entrar">Explorar o protótipo {{ symbol("arrow") }}</a>
-    </div>
-  </section>
 </main>
 <footer class="site-footer wrap">
   {{ brand() }}
   <p>Feito para ouvir sua coleção de um jeito novo.</p>
-  <span class="caption">Conceito independente · Protótipo</span>
+  <span class="caption">Projeto independente · {{ "Protótipo" if demo else "Aplicação local" }}</span>
 </footer>
 {% endblock %}

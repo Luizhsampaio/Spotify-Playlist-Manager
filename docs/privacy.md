@@ -7,7 +7,15 @@
 - Memória do processo: access token, verificador PKCE temporário, sessão e respostas
   de playlists durante a consulta.
 - Navegador: cookie de sessão opaco, HttpOnly e SameSite=Lax, com duração de oito
-  horas. Não contém tokens Spotify. A tela recebe nomes das playlists e links.
+  horas. Não contém tokens Spotify.
+
+A Landing Page, entrada e painel não consultam perfil nem biblioteca. O painel
+mostra apenas a estrutura visual e o estado da conexão local, sem nome, email,
+listas ou contagens de playlists. A presença da credencial salva não comprova
+que a autorização continua válida no Spotify; não fazemos uma consulta remota
+para verificar esse indicador. A operação de leitura preexistente permanece no
+backend, sem botão ou link no painel; se acionada diretamente, pode apresentar
+nomes e links de playlists, sem salvar a biblioteca em disco.
 
 Não há cache da biblioteca em disco, telemetria, scripts externos, CDN, imagens
 remotas, chamada de IA ou acesso ao perfil. A resposta HTML é marcada `no-store`.
@@ -17,7 +25,8 @@ mesmo usuário.
 
 ## Desconectar e revogar
 
-**Desconectar** remove a credencial segura local e invalida as sessões da aplicação.
+**Desconectar Spotify** remove a credencial segura local, invalida as sessões e
+autorizações pendentes da aplicação e retorna à Landing Page.
 Se a exclusão falhar, a interface informa que a desconexão não foi concluída.
 Isso não revoga a autorização no servidor Spotify; use
 [Aplicativos da sua conta](https://www.spotify.com/account/apps/) para isso.
@@ -34,6 +43,11 @@ O callback usa state aleatório, vinculado ao navegador, expira e é de uso úni
 Não habilitamos CORS. Cookies usam HTTP porque a aplicação é estritamente loopback;
 uma eventual versão hospedada exigiria uma revisão de segurança e HTTPS.
 
+A conexão pertence à instalação local e é lembrada no cofre do Windows.
+Navegadores não representam usuários Spotify isolados: este produto não é um
+SaaS hospedado nem uma autenticação multiusuário. O modo `--demo` mantém somente
+sessões simuladas por navegador e nunca acessa a conexão real.
+
 Não abra uma sessão real usando ferramentas de navegador do agente. Use
 `--demo` para qualquer inspeção automatizada. Conteúdo privado da API, nomes de
 playlists e tokens não podem entrar no contexto do modelo.
@@ -48,4 +62,3 @@ documentada com fundamento nas políticas aplicáveis.
 As restrições são uma interpretação técnica conservadora, não um parecer jurídico.
 Consulte as [políticas](https://developer.spotify.com/policy) e os
 [termos](https://developer.spotify.com/terms) do Spotify.
-

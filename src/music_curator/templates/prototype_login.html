@@ -14,16 +14,24 @@
     <span class="login-symbol">{{ symbol("music") }}</span>
     <h2 id="login-title">Bom ter você por aqui.</h2>
     <p>Entre com sua conta Spotify.<br>Sem cadastro, sem outra senha para lembrar.</p>
-    <form method="post" action="/demo/entrar">
+    {{ feedback() }}
+    <form method="post" action="{{ '/demo/entrar' if demo else '/connect' }}">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="button button-green spotify-button" type="submit">
+      <button class="button button-green spotify-button" type="submit" {% if not demo and not configured %}disabled{% endif %}>
         {{ symbol("spotify") }} Continuar com Spotify {{ symbol("arrow") }}
       </button>
     </form>
     <div class="login-disclaimer" role="note">
+      {% if demo %}
       <strong>Você está em um protótipo.</strong>
       <p>Este botão simula a entrada e abre um painel com dados fictícios.
         Não há login real, acesso à sua conta ou solicitação de permissões.</p>
+      {% else %}
+      <strong>Você entra pelo site oficial do Spotify.</strong>
+      <p>A conexão fica salva no armazenamento seguro do Windows. A permissão existente
+        é somente de leitura de playlists; este painel não consulta sua biblioteca.
+        Desconectar apaga a conexão local, sem revogar o acesso no Spotify.</p>
+      {% endif %}
     </div>
     <ul class="trust-list">
       <li>{{ symbol("shield") }} Não pedimos sua senha Spotify.</li>
@@ -32,5 +40,5 @@
     </ul>
   </section>
 </main>
-<footer class="login-footer caption">Curador Musical · Protótipo de experiência · Sem conexão real com o Spotify</footer>
+<footer class="login-footer caption">Curador Musical · {{ "Protótipo de experiência · Sem conexão real com o Spotify" if demo else "Aplicação local · Sem alterações no Spotify" }}</footer>
 {% endblock %}

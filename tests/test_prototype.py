@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from music_curator.config import ORIGIN, Settings
-from music_curator.demo import PROTOTYPE_PLAYLISTS, DemoCredentialStore
+from music_curator.demo import DemoCredentialStore
 from music_curator.web import create_app
 
 HEADERS = {"Origin": ORIGIN}
@@ -48,8 +48,8 @@ def test_home_is_public_and_explains_prototype(prototype: TestClient) -> None:
     response = prototype.get("/")
     assert response.status_code == 200
     assert 'href="/entrar"' in response.text
-    assert "Protótipo navegável" in response.text
-    assert "Nenhuma conexão real" in response.text
+    assert "PRÉVIA COM DADOS FICTÍCIOS" in response.text
+    assert "Projeto independente · Protótipo" in response.text
     assert "Como funciona" in response.text
     assert "Antes de conectar" not in response.text
     assert prototype.get("/static/prototype.css").status_code == 200
@@ -68,6 +68,36 @@ def test_login_page_has_no_registration_or_password(prototype: TestClient) -> No
     assert "Nenhuma base de usuários" in page.text
 
 
+@pytest.mark.parametrize("signed_in", [False, True])
+def test_home_omits_removed_sections(prototype: TestClient, signed_in: bool) -> None:
+    if signed_in:
+        prototype.post("/demo/entrar", data={"csrf": csrf(prototype)}, headers=HEADERS)
+    page = prototype.get("/")
+    assert page.status_code == 200
+    for removed in (
+        'id="como-funciona"',
+        'id="seu-espaco"',
+        'href="#seu-espaco"',
+        "Da sua conta ao seu espaço.",
+        "Entre com Spotify",
+        "Conheça seu espaço",
+        "Continue no controle",
+        "Um espaço seu.",
+        "Explorar o protótipo",
+        'class="prototype-strip"',
+        "Protótipo navegável",
+        "Explore com dados fictícios. Nenhuma conexão real com o Spotify.",
+    ):
+        assert removed not in page.text
+    assert 'href="#como-funciona">Como funciona</a>' in page.text
+    assert "Conheça a ideia" in page.text
+    assert 'class="hero wrap"' in page.text
+    assert "PRÉVIA COM DADOS FICTÍCIOS" in page.text
+    assert '<footer class="site-footer wrap">' in page.text
+    assert "Feito para ouvir sua coleção de um jeito novo." in page.text
+    assert page.text.count('href="/app"' if signed_in else 'href="/entrar"') == 2
+
+
 def test_complete_prototype_flow(prototype: TestClient) -> None:
     token = csrf(prototype)
     response = prototype.post("/demo/entrar", data={"csrf": token}, headers=HEADERS)
@@ -76,9 +106,9 @@ def test_complete_prototype_flow(prototype: TestClient) -> None:
     assert "Sua coleção começa aqui" in response.text
     assert "Spotify · simulado" in response.text
     assert "Conta de demonstração" in response.text
-    assert "6 playlists fictícias" in response.text
-    for playlist in PROTOTYPE_PLAYLISTS:
-        assert playlist.name in response.text
+    assert "Playlists e automações ainda não estão disponíveis" in response.text
+    assert "collection-card" not in response.text
+    assert re.findall(r'<form[^>]+action="([^"]+)"', response.text) == ["/demo/sair"]
     assert "Sua conta Spotify não está conectada" in response.text
     assert "accounts.spotify.com/authorize" not in response.text
     assert prototype.get("/entrar", follow_redirects=False).headers["location"] == "/app"
@@ -139,6 +169,7 @@ def test_prototype_session_expiry(prototype: TestClient, monkeypatch: pytest.Mon
 
 
 def test_demo_routes_are_not_added_to_real_mode(browser: TestClient) -> None:
-    assert browser.get("/entrar").status_code == 404
-    assert browser.get("/app").status_code == 404
+    assert browser.get("/entrar").status_code == 200
+    assert browser.get("/app", follow_redirects=False).headers["location"] == "/entrar"
     assert browser.post("/demo/entrar", headers=HEADERS).status_code == 404
+    assert browser.post("/demo/sair", headers=HEADERS).status_code == 404

@@ -14,7 +14,6 @@ from fastapi.templating import Jinja2Templates
 
 from music_curator.config import ORIGIN, Settings
 from music_curator.credentials import CredentialStore, WindowsCredentialStore
-from music_curator.demo import PROTOTYPE_PLAYLISTS
 from music_curator.models import AppError, Playlist
 from music_curator.spotify import SpotifyClient
 
@@ -36,6 +35,7 @@ class BrowserSession:
     expires_at: float
     pending: PendingLogin | None = None
     message: str | None = None
+    message_error: bool = False
     prototype_signed_in: bool = False
 
 
@@ -73,7 +73,7 @@ def create_app(
             return PlainTextResponse("Origem da requisicao invalida.", status_code=403)
         returning_navigation = (
             request.method == "GET"
-            and request.url.path == "/"
+            and request.url.path in {"/", "/entrar", "/app"}
             and request.headers.get("sec-fetch-mode") == "navigate"
             and request.headers.get("sec-fetch-dest") == "document"
         )
@@ -171,40 +171,59 @@ def create_app(
             return None
         return session
 
-    if demo:
-
-        def prototype_page(request: Request, name: str) -> Response:
-            sid, session, created = session_for(request)
-            if name == "dashboard" and not session.prototype_signed_in:
-                return RedirectResponse("/entrar", status_code=303)
-            if name == "login" and session.prototype_signed_in:
-                return RedirectResponse("/app", status_code=303)
+    def product_page(
+        request: Request,
+        name: str,
+        *,
+        message: str | None = None,
+        error: bool = False,
+        status_code: int = 200,
+    ) -> Response:
+        sid, session, created = session_for(request)
+        if message is None:
+            message, session.message = session.message, None
+            error, session.message_error = session.message_error, False
+        signed_in = session.prototype_signed_in if demo else False
+        if not demo:
+            try:
+                signed_in = client.saved_connection()
+            except AppError as exc:
+                message, error, status_code = str(exc), True, 503
+        if name == "dashboard" and not signed_in and status_code == 200:
+            response: Response = RedirectResponse("/entrar", status_code=303)
+        elif name == "login" and signed_in and not message:
+            response = RedirectResponse("/app", status_code=303)
+        else:
             response = templates.TemplateResponse(
                 request=request,
                 name=f"prototype_{name}.html",
                 context={
                     "csrf": session.csrf,
-                    "signed_in": session.prototype_signed_in,
-                    "playlists": PROTOTYPE_PLAYLISTS,
+                    "signed_in": signed_in,
+                    "demo": demo,
+                    "configured": bool(settings.client_id),
+                    "message": message,
+                    "error": error,
                 },
+                status_code=status_code,
             )
-            if created:
-                response.set_cookie(
-                    COOKIE, sid, httponly=True, samesite="lax", max_age=SESSION_SECONDS
-                )
-            return response
+        if created:
+            response.set_cookie(COOKIE, sid, httponly=True, samesite="lax", max_age=SESSION_SECONDS)
+        return response
 
-        @app.get("/")
-        async def prototype_home(request: Request) -> Response:
-            return prototype_page(request, "home")
+    @app.get("/")
+    async def home(request: Request) -> Response:
+        return product_page(request, "home")
 
-        @app.get("/entrar")
-        async def prototype_login(request: Request) -> Response:
-            return prototype_page(request, "login")
+    @app.get("/entrar")
+    async def login_page(request: Request) -> Response:
+        return product_page(request, "login")
 
-        @app.get("/app")
-        async def prototype_dashboard(request: Request) -> Response:
-            return prototype_page(request, "dashboard")
+    @app.get("/app")
+    async def dashboard(request: Request) -> Response:
+        return product_page(request, "dashboard")
+
+    if demo:
 
         @app.post("/demo/entrar")
         async def prototype_enter(request: Request) -> Response:
@@ -227,15 +246,6 @@ def create_app(
 
         return app
 
-    @app.get("/", response_class=HTMLResponse)
-    async def home(request: Request) -> Response:
-        sid, session, created = session_for(request)
-        message, session.message = session.message, None
-        response = render(request, session, message=message)
-        if created:
-            response.set_cookie(COOKIE, sid, httponly=True, samesite="lax", max_age=SESSION_SECONDS)
-        return response
-
     @app.post("/connect")
     async def connect(request: Request) -> Response:
         session = await verified_session(request)
@@ -244,7 +254,7 @@ def create_app(
         try:
             url, state, verifier = client.authorization()
         except AppError as exc:
-            return render(request, session, message=str(exc), error=True, status_code=400)
+            return product_page(request, "login", message=str(exc), error=True, status_code=400)
         session.pending = PendingLogin(state, verifier, time.monotonic() + 600)
         return RedirectResponse(url, status_code=303)
 
@@ -252,10 +262,15 @@ def create_app(
     async def callback(request: Request) -> Response:
         session = sessions.get(request.cookies.get(COOKIE, ""))
         if session is None or session.expires_at <= time.monotonic():
-            return PlainTextResponse(
-                "Sessao expirada. Volte a pagina inicial e conecte novamente.", status_code=400
+            return product_page(
+                request,
+                "login",
+                message="Sessao expirada. Conecte novamente.",
+                error=True,
+                status_code=400,
             )
         pending, session.pending = session.pending, None
+        session.message_error = True
         states = request.query_params.getlist("state")
         if (
             pending is None
@@ -264,24 +279,25 @@ def create_app(
             or not secrets.compare_digest(states[0], pending.state)
         ):
             session.message = "Autorizacao invalida ou expirada. Conecte novamente."
-            return RedirectResponse("/", status_code=303)
+            return RedirectResponse("/entrar", status_code=303)
         if "error" in request.query_params:
             session.message = (
                 "Autorizacao cancelada ou negada no Spotify. Nenhuma mudanca foi feita."
             )
-            return RedirectResponse("/", status_code=303)
+            return RedirectResponse("/entrar", status_code=303)
         codes = request.query_params.getlist("code")
         if len(codes) != 1 or not codes[0] or len(codes[0]) > 4096:
             session.message = "O Spotify nao enviou uma autorizacao valida. Conecte novamente."
-            return RedirectResponse("/", status_code=303)
+            return RedirectResponse("/entrar", status_code=303)
         try:
             await client.complete_login(codes[0], pending.verifier)
-            session.message = (
-                "Conexao salva com seguranca. Agora voce pode carregar suas playlists."
-            )
+            session.csrf = secrets.token_urlsafe(32)
+            session.message = "Conexao salva com seguranca."
+            session.message_error = False
         except AppError as exc:
             session.message = str(exc)
-        return RedirectResponse("/", status_code=303)
+            return RedirectResponse("/entrar", status_code=303)
+        return RedirectResponse("/app", status_code=303)
 
     @app.post("/playlists", response_class=HTMLResponse)
     async def playlists(request: Request) -> Response:
@@ -305,7 +321,7 @@ def create_app(
         try:
             await client.disconnect()
         except AppError as exc:
-            return render(request, session, message=str(exc), error=True, status_code=503)
+            return product_page(request, "dashboard", message=str(exc), error=True, status_code=503)
         sessions.clear()
         response = RedirectResponse("/", status_code=303)
         response.delete_cookie(COOKIE)

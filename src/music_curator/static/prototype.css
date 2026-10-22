@@ -38,6 +38,14 @@ a:hover { color: #477558; }
 .button-dark:hover, .button-green:hover { background: #306449; color: white; }
 .button-cream { background: var(--lime); color: #20382d; }
 .button-cream:hover { background: #e6ffb6; color: #20382d; }
+.button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+.feedback { padding: 14px 16px; margin-block: 16px; border: 1px solid var(--line); border-radius: 9px; background: #edf2e6; font-size: 13px; overflow-wrap: anywhere; }
+.feedback-error { background: #fbefeb; border-color: #dfb6a9; color: #833b2d; }
+.login-disclaimer code { overflow-wrap: anywhere; }
+.empty-workspace { padding: 38px 24px; border: 1px dashed var(--line); border-radius: 14px; background: white; text-align: center; }
+.empty-workspace > .icon { width: 32px; height: 32px; color: #7d9561; margin-bottom: 16px; }
+.empty-workspace h3 { font-size: 17px; font-weight: 600; }
+.empty-workspace p { color: var(--muted); font-size: 12px; margin-bottom: 0; }
 .hero { display: grid; grid-template-columns: 1.07fr 1fr; gap: 64px; align-items: center; padding-block: 54px 78px; }
 .pill { display: inline-flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: 1.5px; font-weight: 700; padding: 7px 11px; border: 1px solid var(--line); border-radius: 30px; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #71944b; display: inline-block; flex-shrink: 0; }
@@ -256,6 +264,11 @@ em { font-family: Georgia, serif; font-weight: 400; color: #68864f; }
   .summary-grid span { font-size: 9px; }
 }
 @media (max-width: 440px) {
+  .site-header { gap: 12px; flex-wrap: wrap; padding-block: 16px; }
+  .site-header .brand { font-size: 16px; }
+  .sidebar { display: flex; flex-wrap: wrap; gap: 12px; }
+  .sidebar > form { margin-left: auto; }
+  .app-nav { order: 1; width: 100%; }
   .site-header .button-small { gap: 9px; padding-inline: 14px; }
   .site-header > .text-link { font-size: 11px; }
   .hero .pill { font-size: 8px; letter-spacing: 1px; }

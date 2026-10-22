@@ -38,7 +38,7 @@ def serve(
 
 @cli.callback()
 def root() -> None:
-    """Interface local para conectar ao Spotify e listar playlists."""
+    """Interface local para entrar pelo Spotify e abrir seu painel."""
 
 
 def main() -> None:
