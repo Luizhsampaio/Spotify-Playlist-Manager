@@ -1,6 +1,8 @@
+from datetime import UTC, datetime
+
 import httpx
 
-from music_curator.models import Playlist
+from music_curator.models import Album, Artist, Playlist, SavedTrack, Track
 from music_curator.spotify import TOKEN_URL
 
 PROTOTYPE_PLAYLISTS = [
@@ -10,6 +12,30 @@ PROTOTYPE_PLAYLISTS = [
     Playlist(id="syntheticDisco", name="Depois das seis"),
     Playlist(id="syntheticIndie", name="Entre descobertas"),
     Playlist(id="syntheticSoul", name="Domingo sem pressa"),
+]
+
+PROTOTYPE_TRACKS = [
+    SavedTrack(
+        added_at=datetime(2026, 1, 15, 12, tzinfo=UTC),
+        track=Track(
+            id=f"syntheticTrack{index}",
+            name=name,
+            artists=[Artist(name=artist)],
+            album=Album(name=album, release_date=release_date),
+            duration_ms=duration,
+        ),
+    )
+    for index, (name, artist, album, release_date, duration) in enumerate(
+        [
+            ("Horizonte de papel", "Banda Aurora", "Novos caminhos", "2023-08-18", 213000),
+            ("Café na varanda", "Clara do Sol", "Pequenas pausas", "2024-04", 184000),
+            ("Cidade em movimento", "Trio Horizonte", "Depois da chuva", "2022", 265000),
+            ("Um lugar tranquilo", "Banda Aurora", "Novos caminhos", "2023-08-18", 198000),
+            ("Luzes da estação", "Coletivo Vento", "Entre chegadas", "2025-11-07", 231000),
+            ("Domingo azul", "Clara do Sol", "Pequenas pausas", "2024-04", 176000),
+        ],
+        start=1,
+    )
 ]
 
 
@@ -38,6 +64,14 @@ def demo_response(request: httpx.Request) -> httpx.Response:
                 "refresh_token": "synthetic-refresh",
                 "token_type": "Bearer",
                 "expires_in": 3600,
+            },
+        )
+    if request.url.path == "/v1/me/tracks":
+        return httpx.Response(
+            200,
+            json={
+                "items": [item.model_dump(mode="json") for item in PROTOTYPE_TRACKS],
+                "next": None,
             },
         )
     return httpx.Response(

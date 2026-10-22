@@ -5,17 +5,39 @@
 - `.env`: Client ID e modo de política, ignorado pelo Git.
 - Gerenciador de Credenciais do Windows: refresh token, separado por Client ID.
 - Memória do processo: access token, verificador PKCE temporário, sessão e respostas
-  de playlists durante a consulta.
+  de playlists durante a consulta; Músicas Curtidas importadas na sessão do navegador.
 - Navegador: cookie de sessão opaco, HttpOnly e SameSite=Lax, com duração de oito
   horas. Não contém tokens Spotify.
 
-A Landing Page, entrada e painel não consultam perfil nem biblioteca. O painel
-mostra apenas a estrutura visual e o estado da conexão local, sem nome, email,
-listas ou contagens de playlists. A presença da credencial salva não comprova
-que a autorização continua válida no Spotify; não fazemos uma consulta remota
-para verificar esse indicador. A operação de leitura preexistente permanece no
+A Landing Page não consulta a biblioteca. Ao entrar no painel após autorização,
+ou na primeira abertura do painel com uma conexão salva por sessão de navegador,
+a aplicação carrega automaticamente a coleção nativa de Músicas Curtidas
+(`GET /v1/me/tracks`, scope `user-library-read`), sem
+procurar playlists por nome. A tela recebe nomes das músicas, artistas, álbuns,
+duração, data de lançamento do álbum e links construídos a partir de IDs validados.
+A data de adição recebida na importação não é exibida na tabela.
+Não carregamos capas remotas nem áudio. A presença da credencial salva não comprova
+que a autorização continua válida no Spotify; a leitura pode exigir uma nova
+autorização, informada na tela. A operação de leitura de playlists preexistente permanece no
 backend, sem botão ou link no painel; se acionada diretamente, pode apresentar
 nomes e links de playlists, sem salvar a biblioteca em disco.
+
+A lista importada fica somente na memória da sessão, nunca em arquivos ou banco.
+Fica indisponível ao expirar a sessão e é descartada ao sair do demo, desconectar
+ou reiniciar o processo. Uma nova autorização limpa as listas de todas as sessões,
+evitando reapresentar músicas de uma conexão anterior. Uma falha transitória de
+atualização mantém a lista anterior com aviso; nunca mescla resultados parciais.
+Se a autorização precisar ser renovada, a lista daquela sessão é descartada.
+Após a carga inicial, navegação e filtros usam a lista da sessão. Não há polling
+ou sincronização contínua: o botão **Atualizar músicas** consulta novamente.
+Falhas na carga automática permanecem explícitas e não provocam novas consultas
+a cada navegação. Não existe exportação, edição ou envio da lista a IA.
+
+Pesquisa por palavra-chave e filtros de artista, álbum e ano consultam somente
+essa lista em memória, sem chamadas ao Spotify e sem alterar os itens importados.
+Os critérios ficam na sessão do navegador e são enviados por POST com CSRF e
+validação de origem, não por parâmetros na URL. Sair, desconectar ou reautorizar
+também limpa os critérios. Não há logs de termos pesquisados ou de dados da biblioteca.
 
 Não há cache da biblioteca em disco, telemetria, scripts externos, CDN, imagens
 remotas, chamada de IA ou acesso ao perfil. A resposta HTML é marcada `no-store`.
@@ -26,7 +48,7 @@ mesmo usuário.
 ## Desconectar e revogar
 
 **Desconectar Spotify** remove a credencial segura local, invalida as sessões e
-autorizações pendentes da aplicação e retorna à Landing Page.
+autorizações pendentes e listas importadas da aplicação e retorna à Landing Page.
 Se a exclusão falhar, a interface informa que a desconexão não foi concluída.
 Isso não revoga a autorização no servidor Spotify; use
 [Aplicativos da sua conta](https://www.spotify.com/account/apps/) para isso.
@@ -50,7 +72,7 @@ sessões simuladas por navegador e nunca acessa a conexão real.
 
 Não abra uma sessão real usando ferramentas de navegador do agente. Use
 `--demo` para qualquer inspeção automatizada. Conteúdo privado da API, nomes de
-playlists e tokens não podem entrar no contexto do modelo.
+playlists, músicas e tokens não podem entrar no contexto do modelo.
 
 ## Política de IA
 

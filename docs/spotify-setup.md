@@ -12,7 +12,7 @@
    e entre com sua conta Spotify.
 2. Escolha **Create app**. Os nomes dos campos podem variar conforme o painel.
 3. Use um nome descritivo, por exemplo **Curador Musical Pessoal**.
-4. Descreva o uso: aplicação pessoal local para visualizar suas playlists.
+4. Descreva o uso: aplicação pessoal local para visualizar Músicas Curtidas e playlists.
 5. Selecione **Web API** entre as APIs utilizadas.
 6. Cadastre exatamente este **Redirect URI**:
 
@@ -51,10 +51,16 @@ a configuração da conta fora do Git. Nunca coloque Client Secret ou tokens ali
 
 1. Execute o comando de inicialização do [README](../README.md).
 2. Abra http://127.0.0.1:8765.
-3. Clique em **Conectar ao Spotify**.
+3. Clique em **Entrar** e depois em **Continuar com Spotify**.
 4. Confira que o login está no domínio oficial do Spotify.
-5. Autorize a leitura; o único scope solicitado é `playlist-read-private`.
-6. Após retornar, clique em **Carregar playlists**.
+5. Autorize somente leitura: `playlist-read-private` e `user-library-read`.
+6. Ao retornar ao painel, a coleção é carregada automaticamente.
+   Abra **Minhas Músicas** no menu lateral para ver a lista já pronta.
+
+Conexões de versões anteriores precisam incluir a nova permissão de biblioteca.
+Se a tela indicar falta de permissão, use **Reconectar Spotify**, autorize novamente
+e a aplicação carregará a coleção ao retornar ao painel. Essa leitura usa a coleção nativa, não uma playlist chamada
+“Music Liked”. A lista fica somente em memória; **Atualizar músicas** consulta novamente.
 
 A aplicação usa Authorization Code com PKCE e verifica o retorno da autorização.
 O refresh token fica no Gerenciador de Credenciais do Windows, com serviço
@@ -70,6 +76,7 @@ O refresh token fica no Gerenciador de Credenciais do Windows, com serviço
 | Autorização cancelada | Clique novamente em conectar quando quiser autorizar. |
 | Limite de consultas (429) | Aguarde; não fique clicando repetidamente. |
 | Conexão revogada ou expirada | Autorize novamente. |
+| Falta de `user-library-read` | Use Reconectar Spotify em Minhas Músicas e autorize a leitura da biblioteca. |
 | Armazenamento seguro indisponível | Verifique o Gerenciador de Credenciais do Windows; não substitua por arquivo de tokens. |
 | Porta 8765 ocupada | Encerre a instância anterior com Ctrl+C no terminal correspondente. |
 
@@ -82,4 +89,4 @@ As mensagens da interface foram pensadas para não expor esses valores.
 - [Redirect URIs](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri)
 - [Development Mode](https://developer.spotify.com/documentation/web-api/concepts/quota-modes)
 - [Listagem de playlists](https://developer.spotify.com/documentation/web-api/reference/get-a-list-of-current-users-playlists)
-
+- [Músicas Curtidas](https://developer.spotify.com/documentation/web-api/reference/get-users-saved-tracks)

@@ -1,0 +1,44 @@
+{% extends "prototype_base.html" %}
+{% block body_class %}dashboard-page{% endblock %}
+{% block body %}
+<div class="app-shell">
+  <aside class="sidebar">
+    {{ brand() }}
+    <span class="sidebar-label">SEU ESPAÇO</span>
+    <nav class="app-nav" aria-label="Navegação do painel">
+      <a href="/app" {% if active_page == "dashboard" %}class="active" aria-current="page"{% endif %}>{{ symbol("grid") }} Visão geral</a>
+      <a href="/app/musicas" {% if active_page == "songs" %}class="active" aria-current="page"{% endif %}>{{ symbol("music") }} Minhas Músicas</a>
+      <span class="nav-disabled" aria-disabled="true">{{ symbol("grid") }} Playlists <span class="soon">Em breve</span></span>
+      <span class="nav-disabled" aria-disabled="true">{{ symbol("spark") }} Curadoria <span class="soon">Em breve</span></span>
+    </nav>
+    <div class="sidebar-note">{{ symbol("shield") }}<strong>Sua coleção, suas escolhas.</strong>
+      <p>Importação somente para leitura. Nenhuma alteração é feita no Spotify.</p></div>
+    <div class="sidebar-account">
+      <span class="avatar">{{ symbol("spotify") }}</span><div><strong>{{ "Conta de demonstração" if demo else "Conexão Spotify" }}</strong><small>{{ "Sessão simulada" if demo else ("Salva neste computador" if signed_in else "Indisponível") }}</small></div>
+    </div>
+    <form method="post" action="{{ '/demo/sair' if demo else '/disconnect' }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="logout-button" type="submit">{{ symbol("logout") }} {{ "Sair da ferramenta" if demo else "Desconectar Spotify" }}</button>
+    </form>
+  </aside>
+  <div class="app-main">
+    <header class="app-topbar"><span>Meu espaço <span class="breadcrumb">/ {{ "Minhas Músicas" if active_page == "songs" else "Visão geral" }}</span></span>
+      <span class="session-badge"><span class="status-dot"></span> Spotify · {{ "simulado" if demo else ("conexão salva" if signed_in else "indisponível") }}</span></header>
+    <main id="conteudo" class="dashboard-content">
+      {{ feedback() }}
+      {% if active_page != "songs" %}
+      <div class="demo-banner" role="note">{{ symbol("shield") }}
+        {% if demo %}
+        <span><strong>Modo protótipo.</strong> Tudo aqui é fictício. Sua conta Spotify não está conectada.</span>
+        {% else %}
+        <span><strong>Aplicação local.</strong> Suas músicas são carregadas ao entrar. Use “Atualizar músicas” para buscar mudanças. Uma conexão salva não comprova que a autorização continua válida no Spotify.</span>
+        {% endif %}
+        <a href="/">Ver a Home {{ symbol("arrow") }}</a>
+      </div>
+      {% endif %}
+      {% block app_content %}{% endblock %}
+      <footer class="dashboard-footer"><span>Somente leitura · Biblioteca em memória, sem envio para IA.</span><span>Curador Musical · {{ "Protótipo" if demo else "Aplicação local" }}</span></footer>
+    </main>
+  </div>
+</div>
+{% endblock %}

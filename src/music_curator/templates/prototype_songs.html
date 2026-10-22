@@ -1,0 +1,126 @@
+{% extends "app_shell.html" %}
+{% block title %}Minhas Músicas — Curador Musical{% endblock %}
+{% block app_content %}
+<div class="dashboard-heading songs-heading">
+  <div><span class="eyebrow">SUA BIBLIOTECA</span>
+    <h1>Minhas Músicas<span class="brand-dot">.</span></h1>
+    <p>As favoritas que acompanham você, agora no seu espaço.</p></div>
+  {% if signed_in %}
+  <form method="post" action="/app/musicas/importar">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="button button-green" type="submit">{{ symbol("music") }} Atualizar músicas</button>
+  </form>
+  {% endif %}
+</div>
+{% if reconnect and not demo %}
+<div class="login-disclaimer">
+  <strong>Autorize a leitura das suas músicas.</strong>
+  <p>Conexões anteriores podem não incluir a permissão <code>user-library-read</code>.
+    Autorize novamente no site oficial do Spotify. A coleção será carregada ao retornar ao aplicativo.</p>
+  <form method="post" action="/connect">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="button button-dark" type="submit">Reconectar Spotify {{ symbol("arrow") }}</button>
+  </form>
+</div>
+{% endif %}
+{% if tracks is none %}
+<section class="empty-workspace songs-empty" aria-labelledby="songs-empty-title">
+  {{ symbol("music") }}
+  <h2 id="songs-empty-title">{{ "A importação não foi concluída" if error else "Suas favoritas merecem um lugar aqui." }}</h2>
+  <p>{% if error %}Confira a mensagem acima e tente novamente. Nenhuma lista parcial foi importada.
+    {% else %}A coleção é carregada automaticamente ao entrar.
+    Use “Atualizar músicas” para tentar novamente quando necessário.{% endif %}</p>
+  <p>Nenhuma música é adicionada, removida ou modificada no Spotify.</p>
+</section>
+{% else %}
+<section class="songs-library" aria-labelledby="songs-list-title">
+  <div class="section-intro">
+    <div><h2 id="songs-list-title">Sua coleção</h2>
+      <p>{{ tracks | length }} {{ "música importada" if tracks | length == 1 else "músicas importadas" }}{{ " · Dados fictícios" if demo else "" }}</p></div>
+    <span class="subtle-tag">Disponível nesta sessão</span>
+  </div>
+  {% if import_failed %}<p class="feedback" role="status">A atualização falhou. Exibindo a última importação concluída, sem incorporar resultados parciais.</p>{% endif %}
+  <div class="songs-collection-card">
+  <div class="songs-filter-panel">
+    <form class="songs-filters" method="post" action="/app/musicas/filtrar" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="filter-field filter-search">
+        <label for="song-query">Pesquisar por palavra-chave</label>
+        <input id="song-query" type="search" name="q" maxlength="200" value="{{ filters.q }}" placeholder="Música, artista ou álbum">
+      </div>
+      <div class="filter-field">
+        <label for="song-artist">Artista</label>
+        <select id="song-artist" name="artist">
+          <option value="">Todos os artistas</option>
+          {% if filters.artist and filters.artist not in collection.artists %}<option selected value="{{ filters.artist }}">{{ filters.artist }}</option>{% endif %}
+          {% for artist in collection.artists %}<option value="{{ artist }}" {% if filters.artist == artist %}selected{% endif %}>{{ artist }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="song-album">Álbum</label>
+        <select id="song-album" name="album">
+          <option value="">Todos os álbuns</option>
+          {% if filters.album and filters.album not in collection.albums %}<option selected value="{{ filters.album }}">{{ filters.album }}</option>{% endif %}
+          {% for album in collection.albums %}<option value="{{ album }}" {% if filters.album == album %}selected{% endif %}>{{ album }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="song-year">Ano de lançamento</label>
+        <select id="song-year" name="year">
+          <option value="">Todos os anos</option>
+          {% if filters.year and filters.year not in collection.years %}<option selected value="{{ filters.year }}">{{ filters.year }}</option>{% endif %}
+          {% for year in collection.years %}<option value="{{ year }}" {% if filters.year == year %}selected{% endif %}>{{ year }}</option>{% endfor %}
+        </select>
+      </div>
+      <button class="button button-green" type="submit">Aplicar filtros</button>
+    </form>
+    <div class="filter-summary">
+      <p role="status">Mostrando {{ collection.tracks | length }} de {{ tracks | length }} músicas.</p>
+      <form method="post" action="/app/musicas/filtrar">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="filter-clear" type="submit">Limpar filtros e pesquisa</button>
+      </form>
+    </div>
+  </div>
+  {% if not tracks %}
+  <div class="empty-workspace"><h3>Nenhuma música curtida encontrada.</h3><p>{{ "A coleção fictícia está vazia." if demo else "O Spotify retornou uma coleção vazia para esta conta e aplicativo." }}</p></div>
+  {% elif not collection.tracks %}
+  <div class="empty-workspace"><h3>Nenhuma música corresponde aos filtros.</h3><p>Altere a busca ou limpe os filtros para ver sua coleção completa.</p></div>
+  {% else %}
+  <p class="table-hint">Em telas pequenas, deslize a tabela para ver todas as colunas.</p>
+  <div class="songs-table-wrap" role="region" aria-label="Músicas importadas" tabindex="0">
+    <table class="songs-table">
+      <caption class="visually-hidden">Músicas Curtidas importadas {{ "da demonstração" if demo else "do Spotify" }}</caption>
+      <thead><tr><th scope="col">Música</th><th scope="col">Artista</th><th scope="col">Álbum</th><th scope="col">Data de Lançamento</th><th scope="col">Duração</th></tr></thead>
+      <tbody>
+        {% for item in collection.tracks %}
+        {% set track = item.track %}
+        <tr class="song-row">
+          <td><div class="track-info"><span class="track-art" aria-hidden="true">{{ symbol("music") }}</span>
+            <div class="track-copy">
+              {% if track %}
+                {% if track.url and not demo %}<a class="track-title" href="{{ track.url }}" target="_blank" rel="noreferrer noopener">{{ track.name }}</a>
+                {% else %}<span class="track-title">{{ track.name }}</span>{% endif %}
+                {% if not track.id %}<small>Sem link disponível no Spotify</small>{% endif %}
+              {% else %}<span class="track-title">Faixa indisponível</span><small>O Spotify não disponibilizou os dados desta música.</small>{% endif %}
+            </div>
+          </div></td>
+          <td class="track-artists">{{ (track.artists | map(attribute="name") | join(", ") or "Artista não informado") if track else "Indisponível" }}</td>
+          <td class="track-album">{{ track.album.name if track else "Indisponível" }}</td>
+          <td class="track-release">{{ track.album.release_label if track else "Não informada" }}</td>
+          <td class="track-duration">{{ track.duration if track else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="library-privacy">Data de lançamento do álbum informada pelo Spotify. Quando há apenas ano ou mês, essa precisão é preservada.</p>
+  {% endif %}
+  </div>
+</section>
+{% endif %}
+<p class="library-privacy">A importação percorre todas as páginas retornadas pelo Spotify. Os dados ficam apenas
+  na memória desta sessão e são descartados ao sair, desconectar, expirar a sessão ou reiniciar o servidor.
+  A coleção é carregada ao entrar no aplicativo. Use “Atualizar músicas” para buscar mudanças feitas depois;
+  não há sincronização contínua.</p>
+{% endblock %}

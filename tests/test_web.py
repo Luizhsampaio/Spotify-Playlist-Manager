@@ -282,19 +282,20 @@ def test_real_dashboard_requires_saved_connection(browser: TestClient) -> None:
     assert "simula a entrada" not in page.text
 
 
-def test_real_navigation_and_login_never_read_library(store: DemoCredentialStore) -> None:
+def test_real_login_loads_songs_once_and_navigation_reuses_collection(
+    store: DemoCredentialStore,
+) -> None:
     calls: list[str] = []
 
-    def tokens_only(request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST"
-        assert request.url == "https://accounts.spotify.com/api/token"
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path in {"/api/token", "/v1/me/tracks"}
         calls.append(request.url.path)
         return demo_response(request)
 
     app = create_app(
         Settings(client_id="0" * 32),
         store=store,
-        http=httpx.AsyncClient(transport=httpx.MockTransport(tokens_only)),
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     with TestClient(app, base_url=ORIGIN) as client:
         assert client.get("/").status_code == 200
@@ -307,6 +308,9 @@ def test_real_navigation_and_login_never_read_library(store: DemoCredentialStore
         assert response.url.path == "/app"
         assert "Conexao salva com seguranca" in response.text
         assert response.headers["referrer-policy"] == "same-origin"
+        songs = client.get("/app/musicas")
+        assert "6 músicas importadas" in songs.text
+        assert "Atualizar músicas" in songs.text
         for path in ["/", "/entrar", "/app"]:
             page = client.get(path)
             assert page.status_code == 200
@@ -331,26 +335,32 @@ def test_real_navigation_and_login_never_read_library(store: DemoCredentialStore
         assert "Abrir painel" not in response.text
         assert store.token is None
         assert client.get("/app").url.path == "/entrar"
-    assert calls == ["/api/token"]
+    assert calls == ["/api/token", "/v1/me/tracks"]
 
 
-def test_saved_connection_opens_dashboard_without_remote_validation(
+def test_saved_connection_opens_dashboard_and_loads_library_once(
     store: DemoCredentialStore,
 ) -> None:
     store.save("synthetic-refresh")
 
-    def forbidden_request(request: httpx.Request) -> httpx.Response:
-        pytest.fail("Saved connection navigation must not access Spotify")
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return demo_response(request)
 
     app = create_app(
         Settings(client_id="0" * 32),
         store=store,
-        http=httpx.AsyncClient(transport=httpx.MockTransport(forbidden_request)),
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     with TestClient(app, base_url=ORIGIN) as client:
         assert "Abrir painel" in client.get("/").text
+        assert calls == []
         assert client.get("/entrar").url.path == "/app"
         assert "conexão salva" in client.get("/app").text
+        assert "6 músicas importadas" in client.get("/app/musicas").text
+        assert calls == ["/api/token", "/v1/me/tracks"]
 
 
 @pytest.mark.parametrize("status", [400, 500])

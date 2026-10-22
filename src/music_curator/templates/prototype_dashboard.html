@@ -1,54 +1,21 @@
-{% extends "prototype_base.html" %}
+{% extends "app_shell.html" %}
 {% block title %}Meu espaço — Curador Musical{% endblock %}
-{% block body_class %}dashboard-page{% endblock %}
-{% block body %}
-<div class="app-shell">
-  <aside class="sidebar">
-    {{ brand() }}
-    <span class="sidebar-label">SEU ESPAÇO</span>
-    <nav class="app-nav" aria-label="Navegação do painel">
-      <a class="active" href="/app" aria-current="page">{{ symbol("grid") }} Visão geral</a>
-      <span class="nav-disabled" aria-disabled="true">{{ symbol("music") }} Playlists <span class="soon">Em breve</span></span>
-      <span class="nav-disabled" aria-disabled="true">{{ symbol("spark") }} Curadoria <span class="soon">Em breve</span></span>
-    </nav>
-    <div class="sidebar-note">{{ symbol("shield") }}<strong>Sua coleção, suas escolhas.</strong>
-      <p>Nenhuma playlist é consultada ou alterada nesta etapa.</p></div>
-    <div class="sidebar-account">
-      <span class="avatar">{{ symbol("spotify") }}</span><div><strong>{{ "Conta de demonstração" if demo else "Conexão Spotify" }}</strong><small>{{ "Sessão simulada" if demo else ("Salva neste computador" if signed_in else "Indisponível") }}</small></div>
-    </div>
-    <form method="post" action="{{ '/demo/sair' if demo else '/disconnect' }}">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button class="logout-button" type="submit">{{ symbol("logout") }} {{ "Sair da ferramenta" if demo else "Desconectar Spotify" }}</button>
-    </form>
-  </aside>
-  <div class="app-main">
-    <header class="app-topbar"><span>Meu espaço <span class="breadcrumb">/ Visão geral</span></span>
-      <span class="session-badge"><span class="status-dot"></span> Spotify · {{ "simulado" if demo else ("conexão salva" if signed_in else "indisponível") }}</span></header>
-    <main id="conteudo" class="dashboard-content">
-      {{ feedback() }}
-      <div class="demo-banner" role="note">{{ symbol("shield") }}
-        {% if demo %}
-        <span><strong>Modo protótipo.</strong> Tudo aqui é fictício. Sua conta Spotify não está conectada.</span>
-        {% else %}
-        <span><strong>Aplicação local.</strong> A biblioteca não é consultada. Uma conexão salva não comprova que a autorização continua válida no Spotify.</span>
-        {% endif %}
-        <a href="/">Ver a Home {{ symbol("arrow") }}</a>
-      </div>
+{% block app_content %}
       <div class="dashboard-heading">
         <div><span class="eyebrow">BEM-VINDO AO SEU ESPAÇO</span>
           <h1>Sua coleção começa aqui<span class="brand-dot">.</span></h1>
-          <p>Este é o início do seu espaço musical. Os recursos chegam em próximas etapas.</p></div>
+          <p>Explore suas Músicas Curtidas e encontre tudo em um só lugar.</p></div>
       </div>
       <section class="welcome-card" aria-labelledby="welcome-title">
         <div><span class="pill">SUA BIBLIOTECA, EM PRIMEIRO LUGAR</span>
-          <h2 id="welcome-title">Cada playlist conta<br>um pouco da sua história.</h2>
-          <p>Estamos preparando um lugar para sua coleção.<br>Nenhuma playlist é carregada ou modificada aqui.</p>
-          <span class="pill">RECURSOS EM BREVE</span>
+          <h2 id="welcome-title">Suas favoritas.<br>Um espaço só seu.</h2>
+          <p>Traga suas Músicas Curtidas do Spotify.<br>Sem modificar sua conta ou salvar a biblioteca em disco.</p>
+          <a class="button button-cream" href="/app/musicas">Ver Minhas Músicas {{ symbol("arrow") }}</a>
         </div>
         <div class="dashboard-record" aria-hidden="true"><div class="record"><div class="record-label">{{ symbol("music") }}</div></div></div>
       </section>
       <section class="summary-grid" aria-label="Sobre seu espaço">
-        <article>{{ symbol("grid") }}<div><strong>Seu espaço</strong><span>Interface em construção</span></div></article>
+        <article>{{ symbol("music") }}<div><strong>Minhas Músicas</strong><span>Suas favoritas do Spotify</span></div></article>
         <article>{{ symbol("spotify") }}<div><strong>Spotify</strong><span>{{ "Entrada simulada" if demo else "Conexão local, sem consulta de perfil" }}</span></div></article>
         <article>{{ symbol("shield") }}<div><strong>Somente leitura</strong><span>Você mantém o controle</span></div></article>
       </section>
@@ -59,11 +26,7 @@
         </div>
         <div class="empty-workspace">{{ symbol("music") }}
           <h3>Sua próxima experiência começa aqui.</h3>
-          <p>Por enquanto, este painel apresenta apenas a interface.<br>Playlists e automações ainda não estão disponíveis.</p>
+          <p>Comece por Minhas Músicas.<br>Playlists e automações ainda não estão disponíveis.</p>
         </div>
       </section>
-      <footer class="dashboard-footer"><span>Sem consulta à biblioteca. Sem alterações no Spotify.</span><span>Curador Musical · {{ "Protótipo" if demo else "Aplicação local" }}</span></footer>
-    </main>
-  </div>
-</div>
 {% endblock %}

@@ -1,8 +1,9 @@
+import asyncio
 import secrets
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -11,10 +12,13 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 
 from music_curator.config import ORIGIN, Settings
 from music_curator.credentials import CredentialStore, WindowsCredentialStore
-from music_curator.models import AppError, Playlist
+from music_curator.demo import PROTOTYPE_TRACKS
+from music_curator.library import SongFilters, song_collection
+from music_curator.models import AppError, Playlist, ReconnectRequired, SavedTrack
 from music_curator.spotify import SpotifyClient
 
 BASE = Path(__file__).parent
@@ -37,6 +41,13 @@ class BrowserSession:
     message: str | None = None
     message_error: bool = False
     prototype_signed_in: bool = False
+    tracks: list[SavedTrack] | None = None
+    filters: SongFilters = field(default_factory=SongFilters)
+    import_attempted: bool = False
+    import_message: str | None = None
+    import_status: int = 200
+    import_reconnect: bool = False
+    import_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 def create_app(
@@ -53,6 +64,7 @@ def create_app(
         transport,
     )
     sessions: dict[str, BrowserSession] = {}
+    connection_version = 0
     templates = Jinja2Templates(directory=BASE / "templates")
 
     @asynccontextmanager
@@ -148,7 +160,9 @@ def create_app(
             status_code=status_code,
         )
 
-    async def verified_session(request: Request) -> BrowserSession | None:
+    async def verified_form(
+        request: Request, *, max_fields: int = 2, max_bytes: int = 4096
+    ) -> tuple[BrowserSession, dict[str, list[str]]] | None:
         sid = request.cookies.get(COOKIE, "")
         session = sessions.get(sid)
         if session is None or session.expires_at <= time.monotonic():
@@ -160,24 +174,60 @@ def create_app(
         body = b""
         async for chunk in request.stream():
             body += chunk
-            if len(body) > 4096:
+            if len(body) > max_bytes:
                 return None
         try:
-            fields = parse_qs(body.decode("ascii"), max_num_fields=2)
+            fields = parse_qs(
+                body.decode("ascii"), max_num_fields=max_fields, keep_blank_values=True
+            )
         except (UnicodeDecodeError, ValueError):
             return None
         csrf = fields.get("csrf", [])
         if len(csrf) != 1 or not secrets.compare_digest(csrf[0], session.csrf):
             return None
-        return session
+        return session, fields
 
-    def product_page(
+    async def verified_session(request: Request) -> BrowserSession | None:
+        verified = await verified_form(request)
+        return verified[0] if verified is not None else None
+
+    async def refresh_tracks(sid: str, session: BrowserSession) -> bool:
+        version = connection_version
+        items: list[SavedTrack] | None = None
+        message: str | None = None
+        status, reconnect = 200, False
+        try:
+            items = list(PROTOTYPE_TRACKS) if demo else await client.list_saved_tracks()
+        except ReconnectRequired as exc:
+            message, status, reconnect = str(exc), 403, True
+        except AppError as exc:
+            message, status = str(exc), 502
+        if (
+            sessions.get(sid) is not session
+            or session.expires_at <= time.monotonic()
+            or version != connection_version
+        ):
+            return False
+        session.import_attempted = True
+        session.import_message = message
+        session.import_status = status
+        session.import_reconnect = reconnect
+        if status == 200:
+            session.tracks = items
+        elif reconnect:
+            session.tracks = None
+            session.filters = SongFilters()
+        return True
+
+    async def product_page(
         request: Request,
         name: str,
         *,
         message: str | None = None,
         error: bool = False,
         status_code: int = 200,
+        reconnect: bool = False,
+        import_failed: bool = False,
     ) -> Response:
         sid, session, created = session_for(request)
         if message is None:
@@ -189,7 +239,23 @@ def create_app(
                 signed_in = client.saved_connection()
             except AppError as exc:
                 message, error, status_code = str(exc), True, 503
-        if name == "dashboard" and not signed_in and status_code == 200:
+        if name in {"dashboard", "songs"} and signed_in and status_code == 200:
+            async with session.import_lock:
+                if not session.import_attempted and not await refresh_tracks(sid, session):
+                    return PlainTextResponse(
+                        "Sessao ou conexao alterada. Reabra a pagina.", status_code=409
+                    )
+            if not demo:
+                try:
+                    signed_in = client.saved_connection()
+                except AppError as exc:
+                    message, error, status_code = str(exc), True, 503
+        if name in {"dashboard", "songs"} and status_code == 200 and session.import_message:
+            message, error, status_code = session.import_message, True, session.import_status
+            reconnect = session.import_reconnect
+            import_failed = True
+            name = "songs"
+        if name in {"dashboard", "songs"} and not signed_in and status_code == 200:
             response: Response = RedirectResponse("/entrar", status_code=303)
         elif name == "login" and signed_in and not message:
             response = RedirectResponse("/app", status_code=303)
@@ -204,6 +270,14 @@ def create_app(
                     "configured": bool(settings.client_id),
                     "message": message,
                     "error": error,
+                    "active_page": name,
+                    "tracks": session.tracks if signed_in else None,
+                    "reconnect": reconnect,
+                    "import_failed": import_failed,
+                    "filters": session.filters,
+                    "collection": song_collection(session.tracks, session.filters)
+                    if name == "songs" and signed_in and session.tracks is not None
+                    else None,
                 },
                 status_code=status_code,
             )
@@ -213,15 +287,96 @@ def create_app(
 
     @app.get("/")
     async def home(request: Request) -> Response:
-        return product_page(request, "home")
+        return await product_page(request, "home")
 
     @app.get("/entrar")
     async def login_page(request: Request) -> Response:
-        return product_page(request, "login")
+        return await product_page(request, "login")
 
     @app.get("/app")
     async def dashboard(request: Request) -> Response:
-        return product_page(request, "dashboard")
+        return await product_page(request, "dashboard")
+
+    @app.get("/app/musicas")
+    async def songs_page(request: Request) -> Response:
+        return await product_page(request, "songs")
+
+    @app.post("/app/musicas/filtrar")
+    async def filter_songs(request: Request) -> Response:
+        verified = await verified_form(request, max_fields=5, max_bytes=16384)
+        if verified is None:
+            return PlainTextResponse(
+                "Sessao ou formulario invalido. Reabra a pagina.", status_code=403
+            )
+        session, fields = verified
+        try:
+            connected = session.prototype_signed_in if demo else client.saved_connection()
+        except AppError as exc:
+            return await product_page(
+                request, "songs", message=str(exc), error=True, status_code=503
+            )
+        if not connected:
+            return RedirectResponse("/entrar", status_code=303)
+        if session.tracks is None:
+            return await product_page(
+                request,
+                "songs",
+                message="Importe suas musicas antes de pesquisar ou filtrar.",
+                error=True,
+                status_code=400,
+            )
+        if any(len(values) != 1 for values in fields.values()):
+            return await product_page(
+                request,
+                "songs",
+                message="Envie um unico valor por filtro.",
+                error=True,
+                status_code=400,
+            )
+        try:
+            filters = SongFilters.model_validate(
+                {key: values[0] for key, values in fields.items() if key != "csrf"}
+            )
+        except ValidationError:
+            return await product_page(
+                request,
+                "songs",
+                message="Filtros invalidos. Use busca de ate 200 caracteres e ano com 4 digitos.",
+                error=True,
+                status_code=400,
+            )
+        session.filters = filters
+        return RedirectResponse("/app/musicas", status_code=303)
+
+    @app.post("/app/musicas/importar")
+    async def import_songs(request: Request) -> Response:
+        session = await verified_session(request)
+        if session is None:
+            return PlainTextResponse("Sessao invalida. Reabra a pagina.", status_code=403)
+        try:
+            connected = session.prototype_signed_in if demo else client.saved_connection()
+        except AppError as exc:
+            return await product_page(
+                request, "songs", message=str(exc), error=True, status_code=502, import_failed=True
+            )
+        if not connected:
+            return RedirectResponse("/entrar", status_code=303)
+        async with session.import_lock:
+            if not await refresh_tracks(request.cookies.get(COOKIE, ""), session):
+                return PlainTextResponse(
+                    "Sessao ou conexao alterada. Reabra a pagina.", status_code=409
+                )
+        if session.import_message:
+            return await product_page(
+                request,
+                "songs",
+                message=session.import_message,
+                error=True,
+                status_code=session.import_status,
+                reconnect=session.import_reconnect,
+                import_failed=True,
+            )
+        return RedirectResponse("/app/musicas", status_code=303)
 
     if demo:
 
@@ -232,6 +387,12 @@ def create_app(
                 return PlainTextResponse("Sessao invalida. Reabra a pagina.", status_code=403)
             session.prototype_signed_in = True
             session.csrf = secrets.token_urlsafe(32)
+            session.tracks = None
+            session.filters = SongFilters()
+            session.import_attempted = False
+            session.import_message = None
+            session.import_status = 200
+            session.import_reconnect = False
             return RedirectResponse("/app", status_code=303)
 
         @app.post("/demo/sair")
@@ -254,15 +415,18 @@ def create_app(
         try:
             url, state, verifier = client.authorization()
         except AppError as exc:
-            return product_page(request, "login", message=str(exc), error=True, status_code=400)
+            return await product_page(
+                request, "login", message=str(exc), error=True, status_code=400
+            )
         session.pending = PendingLogin(state, verifier, time.monotonic() + 600)
         return RedirectResponse(url, status_code=303)
 
     @app.get("/callback")
     async def callback(request: Request) -> Response:
+        nonlocal connection_version
         session = sessions.get(request.cookies.get(COOKIE, ""))
         if session is None or session.expires_at <= time.monotonic():
-            return product_page(
+            return await product_page(
                 request,
                 "login",
                 message="Sessao expirada. Conecte novamente.",
@@ -291,6 +455,15 @@ def create_app(
             return RedirectResponse("/entrar", status_code=303)
         try:
             await client.complete_login(codes[0], pending.verifier)
+            connection_version += 1
+            for item in sessions.values():
+                item.tracks = None
+                item.filters = SongFilters()
+                item.pending = None
+                item.import_attempted = False
+                item.import_message = None
+                item.import_status = 200
+                item.import_reconnect = False
             session.csrf = secrets.token_urlsafe(32)
             session.message = "Conexao salva com seguranca."
             session.message_error = False
@@ -312,6 +485,7 @@ def create_app(
 
     @app.post("/disconnect")
     async def disconnect(request: Request) -> Response:
+        nonlocal connection_version
         session = await verified_session(request)
         if session is None:
             return PlainTextResponse("Sessao invalida. Reabra a pagina.", status_code=403)
@@ -321,7 +495,10 @@ def create_app(
         try:
             await client.disconnect()
         except AppError as exc:
-            return product_page(request, "dashboard", message=str(exc), error=True, status_code=503)
+            return await product_page(
+                request, "dashboard", message=str(exc), error=True, status_code=503
+            )
+        connection_version += 1
         sessions.clear()
         response = RedirectResponse("/", status_code=303)
         response.delete_cookie(COOKIE)

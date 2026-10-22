@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from music_curator.config import CALLBACK, Settings
 from music_curator.demo import DemoCredentialStore
 from music_curator.models import AppError, ReconnectRequired
-from music_curator.spotify import PLAYLISTS_URL, READ_SCOPE, TOKEN_URL, SpotifyClient
+from music_curator.spotify import AUTH_SCOPES, PLAYLISTS_URL, TOKEN_URL, SpotifyClient
 
 CLIENT_ID = "0" * 32
 TOKEN = {
@@ -20,7 +20,7 @@ TOKEN = {
     "refresh_token": "synthetic-refresh",
     "token_type": "Bearer",
     "expires_in": 3600,
-    "scope": READ_SCOPE,
+    "scope": AUTH_SCOPES,
 }
 
 
@@ -37,7 +37,8 @@ def test_pkce() -> None:
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=")
     assert query["code_challenge"] == [challenge.decode()]
     assert query["code_challenge_method"] == ["S256"]
-    assert query["scope"] == [READ_SCOPE]
+    assert query["scope"] == [AUTH_SCOPES]
+    assert set(query["scope"][0].split()) == {"playlist-read-private", "user-library-read"}
     assert query["redirect_uri"] == [CALLBACK]
     assert query["state"] == [state]
     assert 43 <= len(verifier) <= 128

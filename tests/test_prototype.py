@@ -1,13 +1,9 @@
 import re
-from collections.abc import Iterator
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from music_curator.config import ORIGIN, Settings
-from music_curator.demo import DemoCredentialStore
-from music_curator.web import create_app
+from music_curator.config import ORIGIN
 
 HEADERS = {"Origin": ORIGIN}
 
@@ -17,31 +13,6 @@ def csrf(browser: TestClient) -> str:
     match = re.search(r'name="csrf" value="([^"]+)"', response.text)
     assert match
     return match[1]
-
-
-@pytest.fixture
-def prototype() -> Iterator[TestClient]:
-    class ForbiddenStore(DemoCredentialStore):
-        def load(self) -> str | None:
-            pytest.fail("Prototype must not read credentials")
-
-        def save(self, refresh_token: str) -> None:
-            pytest.fail("Prototype must not save credentials")
-
-        def delete(self) -> None:
-            pytest.fail("Prototype must not delete real credentials")
-
-    def forbidden_request(request: httpx.Request) -> httpx.Response:
-        pytest.fail("Prototype must not call Spotify or any external API")
-
-    app = create_app(
-        Settings(),
-        demo=True,
-        store=ForbiddenStore(),
-        http=httpx.AsyncClient(transport=httpx.MockTransport(forbidden_request)),
-    )
-    with TestClient(app, base_url=ORIGIN) as browser:
-        yield browser
 
 
 def test_home_is_public_and_explains_prototype(prototype: TestClient) -> None:

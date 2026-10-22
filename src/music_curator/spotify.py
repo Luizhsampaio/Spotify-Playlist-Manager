@@ -13,16 +13,22 @@ from music_curator.config import CALLBACK
 from music_curator.credentials import CredentialStore
 from music_curator.models import (
     AppError,
+    CollectionPage,
     Playlist,
     PlaylistPage,
     ReconnectRequired,
+    SavedTrack,
+    SavedTrackPage,
     TokenResponse,
 )
 
 AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
 PLAYLISTS_URL = "https://api.spotify.com/v1/me/playlists?limit=50"
+SAVED_TRACKS_URL = "https://api.spotify.com/v1/me/tracks?limit=50"
 READ_SCOPE = "playlist-read-private"
+LIBRARY_SCOPE = "user-library-read"
+AUTH_SCOPES = f"{READ_SCOPE} {LIBRARY_SCOPE}"
 
 
 class SpotifyClient:
@@ -43,6 +49,7 @@ class SpotifyClient:
         self._access: str | None = None
         self._expires_at = 0.0
         self._lock = asyncio.Lock()
+        self._scopes: set[str] | None = None
 
     def authorization(self) -> tuple[str, str, str]:
         if not self.client_id:
@@ -57,7 +64,7 @@ class SpotifyClient:
                 "client_id": self.client_id,
                 "response_type": "code",
                 "redirect_uri": CALLBACK,
-                "scope": READ_SCOPE,
+                "scope": AUTH_SCOPES,
                 "state": state,
                 "code_challenge_method": "S256",
                 "code_challenge": challenge.rstrip(b"=").decode(),
@@ -110,12 +117,19 @@ class SpotifyClient:
         except ValidationError as exc:
             raise AppError("O Spotify retornou uma autorizacao invalida.") from exc
         if tokens.scope is not None and READ_SCOPE not in tokens.scope.split():
-            raise AppError("A autorizacao nao inclui leitura de playlists privadas. Reconecte.")
+            raise ReconnectRequired(
+                "A autorizacao nao inclui leitura de playlists privadas. Reconecte."
+            )
+        if initial and tokens.scope is not None and LIBRARY_SCOPE not in tokens.scope.split():
+            raise ReconnectRequired(
+                "Autorize a leitura das Musicas Curtidas (user-library-read). Reconecte o Spotify."
+            )
         if initial and tokens.refresh_token is None:
             raise AppError("O Spotify nao enviou a credencial para lembrar a conexao. Reconecte.")
         if tokens.refresh_token is not None:
             self.store.save(tokens.refresh_token.get_secret_value())
         self._access = tokens.access_token.get_secret_value()
+        self._scopes = set(tokens.scope.split()) if tokens.scope is not None else None
         self._expires_at = self.clock() + max(0, tokens.expires_in - 30)
 
     async def complete_login(self, code: str, verifier: str) -> None:
@@ -135,7 +149,9 @@ class SpotifyClient:
         if force or self._access is None or self.clock() >= self._expires_at:
             refresh = self.store.load()
             if not refresh:
-                raise ReconnectRequired("Conecte sua conta ao Spotify para carregar as playlists.")
+                raise ReconnectRequired(
+                    "Conecte sua conta ao Spotify para carregar sua biblioteca."
+                )
             await self._tokens(
                 {
                     "grant_type": "refresh_token",
@@ -148,8 +164,14 @@ class SpotifyClient:
             raise ReconnectRequired("Conecte sua conta novamente.")
         return self._access
 
+    def _check_library_scope(self) -> None:
+        if self._scopes is not None and LIBRARY_SCOPE not in self._scopes:
+            raise ReconnectRequired(
+                "Autorize a leitura das Musicas Curtidas (user-library-read). Reconecte o Spotify."
+            )
+
     @staticmethod
-    def _validate_page(url: str) -> None:
+    def _validate_page(url: str, path: str) -> None:
         try:
             parsed = urlsplit(url)
         except ValueError as exc:
@@ -158,54 +180,72 @@ class SpotifyClient:
         if (
             parsed.scheme != "https"
             or parsed.netloc != "api.spotify.com"
-            or parsed.path != "/v1/me/playlists"
+            or parsed.path != path
             or parsed.fragment
             or not set(query).issubset({"limit", "offset"})
             or any(not value.isdecimal() for values in query.values() for value in values)
         ):
             raise AppError("O Spotify retornou um endereco de paginacao invalido.")
 
-    async def list_playlists(self) -> list[Playlist]:
+    async def _read_collection[T](
+        self, url: str, path: str, page_type: type[CollectionPage[T]]
+    ) -> list[T]:
         async with self._lock:
-            result: dict[str, Playlist] = {}
+            result: list[T] = []
             seen: set[str] = set()
-            url: str | None = PLAYLISTS_URL
+            next_url: str | None = url
             refreshed = False
-            while url is not None:
-                self._validate_page(url)
-                if url in seen:
+            while next_url is not None:
+                self._validate_page(next_url, path)
+                if next_url in seen:
                     raise AppError("O Spotify retornou uma paginacao repetida. Tente novamente.")
-                seen.add(url)
+                seen.add(next_url)
                 token = await self._access_token()
-                response = await self._request("GET", url, token=token)
+                if path == "/v1/me/tracks":
+                    self._check_library_scope()
+                response = await self._request("GET", next_url, token=token)
                 if response.status_code == 401 and not refreshed:
                     token = await self._access_token(force=True)
                     refreshed = True
-                    response = await self._request("GET", url, token=token)
+                    if path == "/v1/me/tracks":
+                        self._check_library_scope()
+                    response = await self._request("GET", next_url, token=token)
                 if response.status_code == 401:
                     self._access = None
                     self.store.delete()
                     raise ReconnectRequired("A sessao Spotify expirou. Conecte novamente.")
                 if response.status_code == 403:
+                    if path == "/v1/me/tracks":
+                        raise ReconnectRequired(
+                            "Acesso as Musicas Curtidas negado. Reconecte o Spotify e autorize "
+                            "user-library-read. Confira tambem Premium e o acesso ao aplicativo."
+                        )
                     raise AppError(
                         "Acesso negado pelo Spotify. Verifique Premium, permissoes e o acesso "
                         "da sua conta ao aplicativo no Developer Dashboard."
                     )
                 if response.status_code != 200:
                     raise AppError(
-                        "O Spotify nao conseguiu listar suas playlists. Tente novamente."
+                        "O Spotify nao conseguiu listar sua biblioteca. Tente novamente."
                     )
                 try:
-                    page = PlaylistPage.model_validate_json(response.content)
+                    page = page_type.model_validate_json(response.content)
                 except ValidationError as exc:
-                    raise AppError("O Spotify retornou uma lista de playlists invalida.") from exc
-                for playlist in page.items:
-                    result[playlist.id] = playlist
-                url = page.next
-            return list(result.values())
+                    raise AppError("O Spotify retornou uma lista invalida.") from exc
+                result.extend(page.items)
+                next_url = page.next
+            return result
+
+    async def list_playlists(self) -> list[Playlist]:
+        items = await self._read_collection(PLAYLISTS_URL, "/v1/me/playlists", PlaylistPage)
+        return list({playlist.id: playlist for playlist in items}.values())
+
+    async def list_saved_tracks(self) -> list[SavedTrack]:
+        return await self._read_collection(SAVED_TRACKS_URL, "/v1/me/tracks", SavedTrackPage)
 
     async def disconnect(self) -> None:
         async with self._lock:
             self._access = None
             self._expires_at = 0
+            self._scopes = None
             self.store.delete()

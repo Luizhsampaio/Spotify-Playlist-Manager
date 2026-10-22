@@ -33,6 +33,11 @@ O modelo de estado em arquivos do produto será desenvolvido somente com o catá
 **Consequência:** não há escrita remota nem necessidade de criar agora modelos de
 proposta/aprovação. Futuras mutações exigem uma nova entrega com aprovação explícita.
 
+**Extensão — Minhas Músicas:** a autorização também solicita `user-library-read`
+para consultar `GET /me/tracks`, na entrada no painel e na atualização manual.
+`playlist-read-private` é preservado para a capacidade preexistente. Nenhum
+escopo de escrita é solicitado. Conexões antigas podem exigir nova autorização.
+
 ## ADR 0004 — Gate Spotify/IA fechado
 
 **Decisão:** aceitar somente `SPOTIFY_AI_POLICY_MODE=blocked`. Não transmitir
@@ -52,10 +57,11 @@ do escopo e sujeitos a análise própria antes da implementação.
 - `config.py`: configuração local validada e gate fechado.
 - `credentials.py`: contrato de credenciais e backend Windows.
 - `models.py`: contratos mínimos de dados e erros seguros para a interface.
+- `library.py`: pesquisa e filtros determinísticos da coleção já importada.
 - `spotify.py`: OAuth, renovação, paginação, timeout e limites de requisições.
 - `web.py`: sessão local, callback, CSRF e apresentação.
 - `cli.py`: inicialização estritamente loopback, sem access logs sensíveis.
-- `demo.py`: playlists fictícias do protótipo e utilitários sintéticos de testes.
+- `demo.py`: músicas e playlists fictícias e utilitários sintéticos de testes.
 
 Um lock no cliente serializa operações de token/leitura/desconexão na instância.
 Não são permitidas instâncias concorrentes na mesma porta. Os dados da API são
@@ -66,8 +72,9 @@ construídas a partir de IDs validados.
 
 Os modos real e `serve --demo` compartilham os templates e CSS da Landing Page
 (`/`), entrada (`/entrar`) e painel (`/app`), com textos e ações específicos.
-O painel apresenta somente a estrutura visual: não lista playlists, não consulta
-perfil ou biblioteca, nem oferece automações. Não há frontend separado.
+O painel não lista playlists nem oferece automações. A funcionalidade
+**Minhas Músicas**, descrita abaixo, faz leitura explícita de Músicas Curtidas.
+Não há consulta de perfil nem frontend separado.
 
 No modo real, `/connect` inicia o OAuth existente. Um callback bem-sucedido
 rotaciona o token CSRF e leva ao painel; cancelamentos e falhas levam à entrada
@@ -88,10 +95,80 @@ playlists em nenhuma navegação ou callback.
 
 No demo, os POSTs `/demo/entrar` e `/demo/sair` apenas mudam a sessão temporária daquele
 navegador, com validação de origem e CSRF. Não existe cadastro ou base de usuários.
-O painel usa a mesma estrutura visual, sem listas, cofre ou chamadas externas.
+O painel usa a mesma estrutura visual, sem cofre ou chamadas externas.
+Minhas Músicas permite importar uma lista exclusivamente fictícia.
 As ilustrações públicas usam exemplos fictícios, não dados da biblioteca.
 
 As rotas de OAuth e leitura reais não são registradas no modo de protótipo.
 As rotas de simulação também não são registradas no modo real. O visual SaaS não
 habilita hospedagem nem isolamento de contas reais: autenticação, ciclo de vida
 de tokens por usuário e revisão para execução hospedada ficam para outra entrega.
+
+## Incremento — Minhas Músicas
+
+`app_shell.html` compartilha menu lateral, sessão e avisos entre Visão geral e
+Minhas Músicas (`GET /app/musicas`). A primeira entrada no painel (`/app` ou
+`/app/musicas`) de uma sessão com conexão salva carrega a coleção automaticamente,
+inclusive após o callback OAuth ou a entrada simulada. As próximas navegações
+reutilizam a lista. A Landing Page não inicia importação.
+`POST /app/musicas/importar` mantém a atualização manual, com sessão, origem local
+e CSRF. Ambos os fluxos reutilizam o mesmo carregamento, que no modo real
+consulta todas as páginas de `GET /v1/me/tracks?limit=50`, reaproveitando
+renovação de token, limites de retry e validação estrita de paginação.
+Não há busca por uma playlist chamada “Music Liked”: são os itens salvos da
+coleção nativa Músicas Curtidas.
+
+O leitor paginado compartilhado com playlists valida host, HTTPS, caminho exato,
+parâmetros numéricos e ciclos antes de enviar credenciais. A lista só substitui
+a importação anterior após todas as páginas serem validadas. Falhas transitórias
+mantêm a última lista completa com aviso; falta de permissão ou revogação limpa
+a lista da sessão e oferece nova autorização.
+
+Modelos tipados preservam músicas indisponíveis (`track: null`) como linhas
+explicitamente identificadas. Nomes são escapados pelo template. Links são
+construídos a partir de IDs validados; nenhuma capa ou mídia remota é carregada.
+Não é aplicado um limite artificial ao número de músicas. Como a biblioteca pode
+mudar durante a paginação, não se promete uma fotografia imutável da conta.
+
+A lista permanece em memória em `BrowserSession`, isolada por sessão de navegador,
+sem persistência e sem importação em segundo plano. Sair do demo, desconectar ou
+reiniciar descarta as listas; expirar a sessão impede novo acesso. Reautorizar
+limpa as importações de todas as sessões por se tratar de uma única conexão local.
+Não há armazenamento de catálogo, correções, classificação, IA ou escrita Spotify.
+
+O painel aguarda a primeira carga antes de responder, sem tarefas em segundo plano
+ou JavaScript de importação. Um lock por sessão impede que abas simultâneas dupliquem
+a carga inicial. O estado distingue carga não tentada, coleção vazia, sucesso e
+falha: falhas são exibidas na tela de músicas e não provocam retries em loop na
+navegação. O botão de atualização permite tentar novamente sem novo login.
+Falhas de permissão oferecem reconexão. A reautorização limpa a lista, os filtros
+e o estado de carga, de modo que a próxima entrada carregue a conexão atual.
+Resultados que terminam após expiração, desconexão ou troca da conexão não são
+publicados na sessão antiga. Não há polling ou sincronização contínua.
+
+### Colunas, lançamentos e filtros locais
+
+A tabela possui exatamente Música, Artista, Álbum, Data de Lançamento e Duração.
+O modelo de álbum conserva `release_date` e `release_date_precision`, valida datas
+e preserva a precisão recebida: ano, mês/ano ou dia/mês/ano. Sem data, a interface
+indica **Não informada**. A data de adição às Músicas Curtidas não é usada como
+lançamento; o dado disponível é o lançamento do álbum, não necessariamente o
+lançamento original da gravação.
+
+`library.py` produz uma visão filtrada sem modificar a lista da sessão.
+A busca combina todas as palavras, sem diferenciar maiúsculas ou acentos, nos
+nomes de música, artistas e álbum. Os seletores usam correspondência exata e
+podem ser combinados com a busca. Colaborações são encontradas por qualquer um
+dos artistas; as opções vêm sempre da coleção completa. Faixas sem metadados
+continuam na visão sem filtros, mas não recebem artistas, datas ou anos inventados.
+
+`POST /app/musicas/filtrar` valida sessão, origem, CSRF, quantidade e tamanho dos
+campos, preservando os filtros anteriores quando a entrada é inválida.
+Os critérios ficam em `BrowserSession`; o redirecionamento para a página da
+coleção não leva metadados em parâmetros da URL. O POST de limpeza usa os mesmos
+controles. Nenhuma dessas operações consulta o Spotify ou altera a importação.
+Atualizar músicas preserva os filtros; sair, desconectar ou reautorizar os limpa.
+Resultados vazios de pesquisa são distintos de uma coleção importada vazia.
+Em telas pequenas, a tabela permite rolagem horizontal interna, sem esconder colunas.
+Filtros, resultados e estados vazios compartilham um único cartão com borda e
+fundo contínuos, preservando a rolagem interna e o foco visível da tabela.
