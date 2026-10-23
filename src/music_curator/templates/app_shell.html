@@ -8,7 +8,7 @@
     <nav class="app-nav" aria-label="Navegação do painel">
       <a href="/app" {% if active_page == "dashboard" %}class="active" aria-current="page"{% endif %}>{{ symbol("grid") }} Visão geral</a>
       <a href="/app/musicas" {% if active_page == "songs" %}class="active" aria-current="page"{% endif %}>{{ symbol("music") }} Minhas Músicas</a>
-      <span class="nav-disabled" aria-disabled="true">{{ symbol("grid") }} Playlists <span class="soon">Em breve</span></span>
+      <a href="/app/playlists" {% if active_page == "managed_playlists" %}class="active" aria-current="page"{% endif %}>{{ symbol("grid") }} Playlists Gerenciadas</a>
       <span class="nav-disabled" aria-disabled="true">{{ symbol("spark") }} Curadoria <span class="soon">Em breve</span></span>
     </nav>
     <div class="sidebar-note">{{ symbol("shield") }}<strong>Sua coleção, suas escolhas.</strong>
@@ -22,7 +22,7 @@
     </form>
   </aside>
   <div class="app-main">
-    <header class="app-topbar"><span>Meu espaço <span class="breadcrumb">/ {{ "Minhas Músicas" if active_page == "songs" else "Visão geral" }}</span></span>
+    <header class="app-topbar"><span>Meu espaço <span class="breadcrumb">/ {{ "Minhas Músicas" if active_page == "songs" else ("Playlists Gerenciadas" if active_page == "managed_playlists" else "Visão geral") }}</span></span>
       <span class="session-badge"><span class="status-dot"></span> Spotify · {{ "simulado" if demo else ("conexão salva" if signed_in else "indisponível") }}</span></header>
     <main id="conteudo" class="dashboard-content">
       {{ feedback() }}

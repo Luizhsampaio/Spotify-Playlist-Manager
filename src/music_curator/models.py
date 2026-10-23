@@ -38,6 +38,7 @@ class Artist(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     name: str
+    id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]+$", min_length=1, max_length=128)
 
 
 class AlbumImage(BaseModel):

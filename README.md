@@ -109,6 +109,33 @@ Spotify real e ação **Desconectar Spotify**. A conexão pertence à instalaç�
 não a usuários isolados por navegador.
 Encerre a demonstração antes de iniciar a versão real na mesma porta.
 
+## Playlists Gerenciadas — prévia por artista
+
+No menu lateral, **Playlists Gerenciadas** abre as opções de organização.
+Clique em **Por artista** para abrir uma janela de configuração:
+
+1. Pesquise os artistas encontrados na coleção importada de Músicas Curtidas.
+2. Selecione um ou mais artistas. **Selecionar todos** inclui todos os artistas,
+   inclusive os ocultos pela pesquisa; **Limpar seleção** desmarca todos.
+3. Clique em **Visualizar prévia** para conferir uma playlist planejada por artista,
+   com nome sugerido, quantidade e lista de músicas.
+4. Use **Editar seleção** para reabrir a configuração.
+
+As colaborações entram na prévia de cada artista participante selecionado.
+Uma mesma faixa não se repete dentro da playlist do artista. Artistas com IDs
+distintos não são mesclados mesmo que tenham o mesmo nome; sem ID, a prévia
+informa que o agrupamento foi feito por nome. Itens sem identificação de faixa
+ou artista utilizável são desconsiderados com aviso.
+
+Os filtros de Minhas Músicas não limitam esta prévia: ela usa a coleção completa
+da sessão. Atualizar a coleção, desconectar ou reautorizar descarta a seleção e
+a prévia; dados antigos enviados por outra aba são recusados.
+
+**Esta etapa não cria playlists no Spotify.** Não solicita escopos de escrita,
+não sincroniza playlists nem executa automações. A criação real fica para uma
+entrega futura com proposta, aprovação humana e validação determinística.
+O modo demo oferece o mesmo fluxo somente com músicas e artistas fictícios.
+
 ## Limites desta entrega
 
 - O painel não consulta nem lista playlists nesta etapa. A capacidade de leitura

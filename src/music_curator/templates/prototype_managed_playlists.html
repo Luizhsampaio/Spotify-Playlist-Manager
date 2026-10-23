@@ -1,0 +1,96 @@
+{% extends "app_shell.html" %}
+{% block title %}Playlists Gerenciadas — Curador Musical{% endblock %}
+{% block app_content %}
+<div class="dashboard-heading">
+  <span class="eyebrow">ORGANIZE SUA COLEÇÃO</span>
+  <h1>Playlists Gerenciadas<span class="brand-dot">.</span></h1>
+  <p>Escolha uma opção e configure como suas Músicas Curtidas serão organizadas.</p>
+</div>
+<div class="managed-policy" role="note">{{ symbol("shield") }}
+  <div><strong>Somente prévia nesta etapa.</strong>
+    <p>Nenhuma playlist é criada ou alterada no Spotify. A criação real depende de uma
+      próxima entrega com proposta, aprovação e validação antes de habilitar escrita.</p></div>
+</div>
+{% if artist_collection is not none %}
+<section class="managed-options" aria-label="Opções de playlists">
+  <button class="managed-option" type="button" data-open-artist-dialog aria-haspopup="dialog" aria-controls="artist-playlist-dialog" {% if not artist_collection.playlists %}disabled{% endif %}>
+    <span class="managed-option-icon">{{ symbol("music") }}</span>
+    <span><strong>Por artista</strong>
+      <span>Uma playlist para cada artista escolhido, usando suas Músicas Curtidas.</span>
+      <span class="managed-option-action">Configurar prévia {{ symbol("arrow") }}</span></span>
+  </button>
+</section>
+<noscript><p class="feedback" role="status">Ative JavaScript para abrir a configuração em uma janela modal. Nenhuma escrita no Spotify está habilitada.</p></noscript>
+{% if not artist_collection.playlists %}
+<div class="empty-workspace"><h2>Nenhum artista disponível para configurar.</h2>
+  <p>A coleção não contém músicas com identificação e artistas utilizáveis.
+    Confira <a href="/app/musicas">Minhas Músicas</a> e tente atualizar a coleção.</p></div>
+{% endif %}
+{% if artist_collection.skipped_tracks %}
+<p class="library-privacy">{{ artist_collection.skipped_tracks }} item(ns) sem faixa, identificação da música ou artista foram desconsiderados. Nenhum dado foi inventado.</p>
+{% endif %}
+{% if selected_artists %}
+<section class="playlist-preview" aria-labelledby="preview-heading">
+  <div class="section-intro"><div><h2 id="preview-heading">Prévia por artista</h2>
+    <p>{{ selected_artists | length }} {{ "playlist planejada" if selected_artists | length == 1 else "playlists planejadas" }} · Nenhuma criada no Spotify.</p></div>
+    <button class="button button-dark" type="button" data-open-artist-dialog>Editar seleção</button></div>
+  <div class="playlist-preview-grid">
+    {% for playlist in artist_collection.playlists if playlist.key in selected_artists %}
+    <article class="playlist-preview-card">
+      <span class="pill">PRÉVIA · NÃO CRIADA</span>
+      <h3>{{ playlist.name }}</h3>
+      <p>{{ playlist.tracks | length }} {{ "música" if playlist.tracks | length == 1 else "músicas" }} · Nome sugerido: {{ playlist.name }}</p>
+      {% if not playlist.artist_id %}<p class="library-privacy">Sem ID do artista: agrupamento por nome nesta prévia.</p>{% endif %}
+      <details><summary>Ver músicas</summary><ul>
+        {% for track in playlist.tracks %}<li>{{ track.name }} <small>{{ track.artists | map(attribute="name") | join(", ") }} · {{ track.duration }}</small></li>{% endfor %}
+      </ul></details>
+    </article>
+    {% endfor %}
+  </div>
+  <p class="library-privacy">Esta é uma prévia da última coleção importada, sem sincronização ou criação automática. Atualizar as músicas descarta a seleção e a prévia para que sejam conferidas novamente.</p>
+</section>
+{% endif %}
+<dialog id="artist-playlist-dialog" class="playlist-dialog" aria-labelledby="artist-dialog-title" aria-describedby="artist-dialog-description" {% if open_artist_dialog %}data-open-on-load{% endif %}>
+  <div class="playlist-dialog-heading">
+    <div><span class="eyebrow">CONFIGURAR PRÉVIA</span><h2 id="artist-dialog-title">Playlist por artista</h2></div>
+    <button type="button" class="dialog-close" data-close-artist-dialog aria-label="Fechar configuração">×</button>
+  </div>
+  <p id="artist-dialog-description">Selecione os artistas para visualizar uma playlist por artista.
+    A fonte é toda a sua coleção de Músicas Curtidas, independentemente dos filtros de Minhas Músicas.</p>
+  <p class="managed-modal-note">Colaborações entram na playlist de cada artista participante selecionado.
+    Uma mesma música não se repete dentro da mesma playlist. Nenhuma alteração será feita no Spotify.</p>
+  {% if open_artist_dialog %}{{ feedback() }}{% endif %}
+  <form method="post" action="/app/playlists/por-artista/previa">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="revision" value="{{ tracks_revision }}">
+    <div class="artist-search-field"><label for="managed-artist-search">Pesquisar artistas</label>
+      <input id="managed-artist-search" type="search" placeholder="Digite o nome do artista" autocomplete="off" data-artist-search autofocus>
+    </div>
+    <div class="artist-selection-toolbar">
+      <span data-artist-selection-count role="status">{{ selected_artists | length }} selecionado(s)</span>
+      <div><button type="button" data-select-all-artists>Selecionar todos</button>
+        <button type="button" data-clear-artists>Limpar seleção</button></div>
+    </div>
+    <fieldset class="artist-options"><legend class="visually-hidden">Artistas identificados nas Músicas Curtidas</legend>
+      {% for playlist in artist_collection.playlists %}
+      <label class="artist-option" data-artist-option data-artist-name="{{ playlist.name }}">
+        <input type="checkbox" name="artists" value="{{ playlist.key }}" {% if playlist.key in selected_artists %}checked{% endif %}>
+        <span><strong>{{ playlist.name }}</strong>
+          <small>{{ playlist.tracks | length }} {{ "música" if playlist.tracks | length == 1 else "músicas" }}{% if not playlist.artist_id %} · Sem ID: agrupado por nome{% endif %}</small></span>
+      </label>
+      {% endfor %}
+    </fieldset>
+    <p class="artist-no-results" data-artist-no-results role="status" hidden>Nenhum artista corresponde à pesquisa. Os artistas selecionados continuam selecionados.</p>
+    <div class="playlist-dialog-footer">
+      <span>Prévia local · Sem escrita no Spotify</span>
+      <div><button class="button button-dark" type="button" data-close-artist-dialog>Cancelar</button>
+        <button class="button button-green" type="submit" data-artist-preview-submit>Visualizar prévia</button></div>
+    </div>
+  </form>
+</dialog>
+{% else %}
+<div class="empty-workspace"><h2>A coleção ainda não está disponível.</h2>
+  <p>Abra <a href="/app/musicas">Minhas Músicas</a> para conferir a conexão e atualizar suas músicas.</p></div>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="/static/managed-playlists.js" defer></script>{% endblock %}

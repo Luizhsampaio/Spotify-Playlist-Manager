@@ -19,11 +19,13 @@ from music_curator.credentials import CredentialStore, WindowsCredentialStore
 from music_curator.demo import PROTOTYPE_TRACKS
 from music_curator.library import SongFilters, song_collection
 from music_curator.models import AppError, Playlist, ReconnectRequired, SavedTrack
+from music_curator.playlist_preview import artist_playlists
 from music_curator.spotify import SpotifyClient
 
 BASE = Path(__file__).parent
 COOKIE = "curator_session"
 SESSION_SECONDS = 8 * 60 * 60
+PRODUCT_PAGES = {"dashboard", "songs", "managed_playlists"}
 
 
 @dataclass
@@ -48,6 +50,8 @@ class BrowserSession:
     import_status: int = 200
     import_reconnect: bool = False
     import_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    tracks_revision: str = field(default_factory=lambda: secrets.token_urlsafe(24))
+    selected_artists: set[str] = field(default_factory=set)
 
 
 def create_app(
@@ -215,9 +219,12 @@ def create_app(
         session.import_reconnect = reconnect
         if status == 200:
             session.tracks = items
+            session.tracks_revision = secrets.token_urlsafe(24)
+            session.selected_artists.clear()
         elif reconnect:
             session.tracks = None
             session.filters = SongFilters()
+            session.selected_artists.clear()
         return True
 
     async def product_page(
@@ -229,6 +236,7 @@ def create_app(
         status_code: int = 200,
         reconnect: bool = False,
         import_failed: bool = False,
+        open_artist_dialog: bool = False,
     ) -> Response:
         sid, session, created = session_for(request)
         if message is None:
@@ -240,7 +248,7 @@ def create_app(
                 signed_in = client.saved_connection()
             except AppError as exc:
                 message, error, status_code = str(exc), True, 503
-        if name in {"dashboard", "songs"} and signed_in and status_code == 200:
+        if name in PRODUCT_PAGES and signed_in and status_code == 200:
             async with session.import_lock:
                 if not session.import_attempted and not await refresh_tracks(sid, session):
                     return PlainTextResponse(
@@ -251,12 +259,12 @@ def create_app(
                     signed_in = client.saved_connection()
                 except AppError as exc:
                     message, error, status_code = str(exc), True, 503
-        if name in {"dashboard", "songs"} and status_code == 200 and session.import_message:
+        if name in PRODUCT_PAGES and status_code == 200 and session.import_message:
             message, error, status_code = session.import_message, True, session.import_status
             reconnect = session.import_reconnect
             import_failed = True
             name = "songs"
-        if name in {"dashboard", "songs"} and not signed_in and status_code == 200:
+        if name in PRODUCT_PAGES and not signed_in and status_code == 200:
             response: Response = RedirectResponse("/entrar", status_code=303)
         elif name == "login" and signed_in and not message:
             response = RedirectResponse("/app", status_code=303)
@@ -279,6 +287,12 @@ def create_app(
                     "collection": song_collection(session.tracks, session.filters)
                     if name == "songs" and signed_in and session.tracks is not None
                     else None,
+                    "artist_collection": artist_playlists(session.tracks)
+                    if name == "managed_playlists" and signed_in and session.tracks is not None
+                    else None,
+                    "selected_artists": session.selected_artists if signed_in else set(),
+                    "tracks_revision": session.tracks_revision,
+                    "open_artist_dialog": open_artist_dialog,
                 },
                 status_code=status_code,
             )
@@ -301,6 +315,61 @@ def create_app(
     @app.get("/app/musicas")
     async def songs_page(request: Request) -> Response:
         return await product_page(request, "songs")
+
+    @app.get("/app/playlists")
+    async def managed_playlists_page(request: Request) -> Response:
+        return await product_page(request, "managed_playlists")
+
+    @app.post("/app/playlists/por-artista/previa")
+    async def artist_playlist_preview(request: Request) -> Response:
+        verified = await verified_form(request, max_fields=10003, max_bytes=1024 * 1024)
+        if verified is None:
+            return PlainTextResponse(
+                "Sessao ou formulario invalido. Reabra a pagina.", status_code=403
+            )
+        session, fields = verified
+        try:
+            connected = session.prototype_signed_in if demo else client.saved_connection()
+        except AppError as exc:
+            return await product_page(
+                request, "managed_playlists", message=str(exc), error=True, status_code=503
+            )
+        if not connected:
+            return RedirectResponse("/entrar", status_code=303)
+
+        async with session.import_lock:
+            message = None
+            status = 400
+            if session.tracks is None:
+                message = "Carregue suas musicas antes de configurar a previa."
+            elif (
+                len(fields.get("revision", [])) != 1
+                or not fields["revision"][0].isascii()
+                or not secrets.compare_digest(fields["revision"][0], session.tracks_revision)
+            ):
+                message = "A colecao foi atualizada. Reabra a configuracao e selecione os artistas."
+                status = 409
+            elif set(fields) - {"csrf", "revision", "artists"}:
+                message = "Formulario invalido. Use somente as opcoes apresentadas."
+            else:
+                selected = fields.get("artists", [])
+                available = {group.key for group in artist_playlists(session.tracks).playlists}
+                if not selected:
+                    message = "Selecione pelo menos um artista para visualizar a previa."
+                elif len(selected) != len(set(selected)) or not set(selected).issubset(available):
+                    message = "Selecao de artistas invalida. Reabra a configuracao."
+                else:
+                    session.selected_artists = set(selected)
+        if message:
+            return await product_page(
+                request,
+                "managed_playlists",
+                message=message,
+                error=True,
+                status_code=status,
+                open_artist_dialog=True,
+            )
+        return RedirectResponse("/app/playlists", status_code=303)
 
     @app.post("/app/musicas/filtrar")
     async def filter_songs(request: Request) -> Response:
@@ -389,6 +458,7 @@ def create_app(
             session.prototype_signed_in = True
             session.csrf = secrets.token_urlsafe(32)
             session.tracks = None
+            session.selected_artists.clear()
             session.filters = SongFilters()
             session.import_attempted = False
             session.import_message = None
@@ -459,6 +529,7 @@ def create_app(
             connection_version += 1
             for item in sessions.values():
                 item.tracks = None
+                item.selected_artists.clear()
                 item.filters = SongFilters()
                 item.pending = None
                 item.import_attempted = False

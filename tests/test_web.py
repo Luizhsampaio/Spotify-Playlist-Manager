@@ -321,7 +321,7 @@ def test_real_login_loads_songs_once_and_navigation_reuses_collection(
             assert "synthetic-refresh" not in page.text
         dashboard = client.get("/app")
         assert "Spotify · conexão salva" in dashboard.text
-        assert "Playlists e automações ainda não estão disponíveis" in dashboard.text
+        assert "A criação no Spotify ainda não está habilitada" in dashboard.text
         assert "não comprova" in dashboard.text
         assert "Conta de demonstração" not in dashboard.text
         assert "Modo protótipo" not in dashboard.text

@@ -43,6 +43,15 @@ Os critérios ficam na sessão do navegador e são enviados por POST com CSRF e
 validação de origem, não por parâmetros na URL. Sair, desconectar ou reautorizar
 também limpa os critérios. Não há logs de termos pesquisados ou de dados da biblioteca.
 
+**Playlists Gerenciadas** usa a mesma coleção em memória para identificar artistas
+e apresentar prévias locais por artista selecionado. O modal exibe nomes e contagens
+e a prévia exibe as músicas planejadas; nenhum desses dados é enviado a outro
+serviço ou a IA. Seleções são enviadas por POST com CSRF, sem metadados na URL,
+e ficam somente na sessão. Atualizar músicas, reautorizar, sair, desconectar ou
+reiniciar invalida as seleções. Esta prévia não cria nem altera playlists no
+Spotify e não solicita novas permissões. Não há histórico persistente de decisões,
+aprovação de escrita, exportação ou sincronização de playlists nesta etapa.
+
 Não há cache da biblioteca em disco, telemetria, scripts externos, chamada de IA
 ou acesso ao perfil. A resposta HTML é marcada `no-store`. O aplicativo não grava
 capas em disco; o cache de imagens do navegador depende dos cabeçalhos do CDN.

@@ -58,6 +58,7 @@ do escopo e sujeitos a análise própria antes da implementação.
 - `credentials.py`: contrato de credenciais e backend Windows.
 - `models.py`: contratos mínimos de dados e erros seguros para a interface.
 - `library.py`: pesquisa e filtros determinísticos da coleção já importada.
+- `playlist_preview.py`: agrupamento determinístico para prévias por artista.
 - `spotify.py`: OAuth, renovação, paginação, timeout e limites de requisições.
 - `web.py`: sessão local, callback, CSRF e apresentação.
 - `cli.py`: inicialização estritamente loopback, sem access logs sensíveis.
@@ -202,3 +203,38 @@ persistência de arquivos de capas. A política de IA permanece bloqueada.
 
 No demo, o template ignora URLs de imagens reais e usa somente a arte sintética
 local `demo-album-cover.svg`; a CSP continua bloqueando imagens externas.
+
+## Incremento — Playlists Gerenciadas, prévia por artista
+
+`GET /app/playlists` compartilha o shell e o carregamento inicial da coleção.
+O menu substitui a opção Playlists desabilitada por **Playlists Gerenciadas**.
+O botão **Por artista** abre um `dialog` nativo, com pesquisa, checkboxes,
+seleção/limpeza de todos, navegação por teclado e retorno de foco ao fechar.
+Cancelar ou pressionar Escape não submete a configuração.
+
+`playlist_preview.py` usa a coleção completa, independente dos filtros de músicas.
+O agrupamento inclui todos os artistas participantes, usa ID de artista quando
+disponível e, na ausência dele, nome com aviso explícito. Chaves de formulário
+são hashes determinísticos da identidade; não representam uma nova autenticação.
+O ID da faixa impede duplicatas dentro de cada grupo; faixas sem ID ou artistas
+utilizáveis são excluídas com contagem. A ordem das músicas segue a importação.
+
+`POST /app/playlists/por-artista/previa` exige sessão, origem local, CSRF, revisão
+atual da coleção e artistas pertencentes à lista calculada pelo servidor.
+Não aceita payloads de criação ou nomes arbitrários de playlists. Nenhuma seleção
+é marcada por padrão e nenhum envio aciona escrita. A revisão é rotacionada após
+cada importação completa; o lock de importação serializa a validação da seleção.
+Formulários desatualizados são recusados, sem anunciar sucesso.
+
+A seleção e a prévia são efêmeras na sessão, não um histórico de decisões ou
+aprovação para escrita. Não há correções persistentes nem banco de dados.
+Atualizar músicas, reautorizar ou encerrar a sessão invalida a seleção; falhas
+transitórias preservam a última coleção completa. Busca e seleção não chamam
+a API. O demo não acessa transporte externo ou credenciais.
+
+O resultado é estritamente uma **prévia não criada**. Permanecem somente os
+escopos de leitura atuais e `SPOTIFY_AI_POLICY_MODE=blocked`.
+Criação real, nomenclatura final, privacidade, tratamento de playlists já existentes,
+confirmação humana, prevenção de duplicatas entre execuções, falhas parciais e
+validação de escritas precisam de proposta e aprovação específicas antes de
+qualquer implementação de mutação.

@@ -77,7 +77,7 @@ def test_complete_prototype_flow(prototype: TestClient) -> None:
     assert "Sua coleção começa aqui" in response.text
     assert "Spotify · simulado" in response.text
     assert "Conta de demonstração" in response.text
-    assert "Playlists e automações ainda não estão disponíveis" in response.text
+    assert "A criação no Spotify ainda não está habilitada" in response.text
     assert "collection-card" not in response.text
     assert re.findall(r'<form[^>]+action="([^"]+)"', response.text) == ["/demo/sair"]
     assert "Sua conta Spotify não está conectada" in response.text

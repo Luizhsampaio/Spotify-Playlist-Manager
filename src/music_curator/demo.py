@@ -20,7 +20,17 @@ PROTOTYPE_TRACKS = [
         track=Track(
             id=f"syntheticTrack{index}",
             name=name,
-            artists=[Artist(name=artist)],
+            artists=[
+                Artist(
+                    name=artist,
+                    id={
+                        "Banda Aurora": "syntheticAurora",
+                        "Clara do Sol": "syntheticClara",
+                        "Trio Horizonte": "syntheticTrio",
+                        "Coletivo Vento": "syntheticColetivo",
+                    }[artist],
+                )
+            ],
             album=Album(name=album, release_date=release_date),
             duration_ms=duration,
         ),
