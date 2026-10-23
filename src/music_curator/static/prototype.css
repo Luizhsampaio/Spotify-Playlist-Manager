@@ -59,14 +59,24 @@ a:hover { color: #477558; }
 .songs-empty p + p { margin-top: 12px; font-size: 11px; }
 .songs-library { margin-top: 32px; }
 .songs-library .section-intro h2 { font-size: 24px; }
-.songs-collection-card { border: 1px solid var(--line); border-radius: 12px; background: white; overflow: hidden; }
+.songs-collection-card { border: 1px solid var(--line); border-radius: 12px; background: white; }
 .songs-filter-panel { padding: 20px; border-bottom: 1px solid var(--line); }
-.songs-collection-card > .empty-workspace { border: 0; border-radius: 0; }
+.songs-collection-card > .empty-workspace { border: 0; border-radius: 0 0 12px 12px; }
 .songs-collection-card > .library-privacy { margin: 0; padding: 16px 20px; border-top: 1px solid var(--line); }
 .songs-filters { display: grid; grid-template-columns: minmax(180px, 2fr) repeat(2, minmax(110px, 1fr)) minmax(115px, 0.8fr) auto; align-items: end; gap: 12px; }
 .filter-field { min-width: 0; }
 .filter-field label { display: block; margin-bottom: 7px; font-size: 11px; font-weight: 600; }
 .filter-field input, .filter-field select { width: 100%; min-width: 0; min-height: 43px; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); font-size: 12px; }
+.filter-field select[hidden], .select-search-panel[hidden] { display: none; }
+.searchable-select { position: relative; }
+.select-trigger { width: 100%; min-height: 43px; padding: 10px 26px 10px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); font-size: 12px; text-align: left; overflow-wrap: anywhere; position: relative; }
+.select-trigger::after { content: "\2304"; position: absolute; right: 10px; top: 10px; }
+.select-search-panel { position: absolute; top: calc(100% + 7px); left: 0; width: 100%; z-index: 10; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: white; box-shadow: 0 8px 24px #20382d1f; }
+.select-options { max-height: 180px; overflow-y: auto; margin-top: 7px; }
+.select-options button { display: block; width: 100%; padding: 9px 7px; border: 0; border-radius: 4px; background: white; color: var(--ink); text-align: left; font-size: 12px; overflow-wrap: anywhere; }
+.select-options button:hover, .select-options .option-active { background: #edf2e6; }
+.select-options [aria-selected="true"] { font-weight: 700; }
+.select-options-status { margin: 8px 0 0; font-size: 10px; color: var(--muted); }
 .songs-filters .button { min-height: 43px; padding: 10px 14px; font-size: 12px; }
 .filter-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
 .filter-summary p { margin: 0; font-size: 11px; color: var(--muted); }

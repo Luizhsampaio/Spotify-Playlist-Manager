@@ -162,6 +162,17 @@ podem ser combinados com a busca. Colaborações são encontradas por qualquer u
 dos artistas; as opções vêm sempre da coleção completa. Faixas sem metadados
 continuam na visão sem filtros, mas não recebem artistas, datas ou anos inventados.
 
+O script local `searchable-selects.js` aprimora os três seletores com pesquisa
+de opções sem acentos ou distinção de maiúsculas, seleção única e navegação por
+teclado (setas, Enter e Escape). A busca de opções não tem nome no formulário:
+somente o valor escolhido no select original é enviado ao aplicar filtros.
+Sem JavaScript, os selects nativos continuam disponíveis. O aprimoramento não
+faz requisições, não persiste pesquisas e constrói textos com `textContent`.
+O painel pesquisável abre para baixo em posicionamento absoluto, sobreposto aos
+resultados, sem participar do grid ou deslocar campos e tabela. O cartão não
+recorta o menu; apenas a tabela mantém sua rolagem horizontal interna.
+O foco não rola a página ao abrir, e as setas rolam somente a lista de opções.
+
 `POST /app/musicas/filtrar` valida sessão, origem, CSRF, quantidade e tamanho dos
 campos, preservando os filtros anteriores quando a entrada é inválida.
 Os critérios ficam em `BrowserSession`; o redirecionamento para a página da

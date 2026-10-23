@@ -54,6 +54,9 @@ Abra **http://127.0.0.1:8765** no navegador:
 8. Combine os filtros de **Artista, Álbum e Ano de lançamento** e clique em
    **Aplicar filtros**. O contador mostra quantas músicas da coleção estão visíveis.
    **Limpar filtros e pesquisa** restaura a lista completa.
+   Cada seletor inclui uma pesquisa para reduzir suas opções enquanto você digita,
+   sem diferenciar acentos ou maiúsculas. Escolha uma opção antes de aplicar;
+   digitar nessa pesquisa não altera a seleção nem consulta o Spotify.
 9. Use **Atualizar músicas** para buscar mudanças no Spotify. Pesquisar e filtrar
    usam somente a lista já importada, sem novas consultas ou alteração dos itens.
 10. Use **Desconectar Spotify** para apagar a conexão salva e voltar à Landing Page.

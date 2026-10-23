@@ -50,7 +50,7 @@
       </div>
       <div class="filter-field">
         <label for="song-artist">Artista</label>
-        <select id="song-artist" name="artist">
+        <select id="song-artist" name="artist" data-searchable-select>
           <option value="">Todos os artistas</option>
           {% if filters.artist and filters.artist not in collection.artists %}<option selected value="{{ filters.artist }}">{{ filters.artist }}</option>{% endif %}
           {% for artist in collection.artists %}<option value="{{ artist }}" {% if filters.artist == artist %}selected{% endif %}>{{ artist }}</option>{% endfor %}
@@ -58,7 +58,7 @@
       </div>
       <div class="filter-field">
         <label for="song-album">Álbum</label>
-        <select id="song-album" name="album">
+        <select id="song-album" name="album" data-searchable-select>
           <option value="">Todos os álbuns</option>
           {% if filters.album and filters.album not in collection.albums %}<option selected value="{{ filters.album }}">{{ filters.album }}</option>{% endif %}
           {% for album in collection.albums %}<option value="{{ album }}" {% if filters.album == album %}selected{% endif %}>{{ album }}</option>{% endfor %}
@@ -66,7 +66,7 @@
       </div>
       <div class="filter-field">
         <label for="song-year">Ano de lançamento</label>
-        <select id="song-year" name="year">
+        <select id="song-year" name="year" data-searchable-select>
           <option value="">Todos os anos</option>
           {% if filters.year and filters.year not in collection.years %}<option selected value="{{ filters.year }}">{{ filters.year }}</option>{% endif %}
           {% for year in collection.years %}<option value="{{ year }}" {% if filters.year == year %}selected{% endif %}>{{ year }}</option>{% endfor %}
@@ -132,4 +132,7 @@
   A coleção é carregada ao entrar no aplicativo. Use “Atualizar músicas” para buscar mudanças feitas depois;
   não há sincronização contínua.</p>
 {% endblock %}
-{% block scripts %}<script src="/static/album-covers.js" defer></script>{% endblock %}
+{% block scripts %}
+<script src="/static/album-covers.js" defer></script>
+<script src="/static/searchable-selects.js" defer></script>
+{% endblock %}

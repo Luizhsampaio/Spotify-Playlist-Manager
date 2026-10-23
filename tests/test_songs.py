@@ -27,6 +27,20 @@ def enter_demo(browser: TestClient) -> None:
     browser.post("/demo/entrar", data={"csrf": csrf(browser, "/entrar")}, headers=HEADERS)
 
 
+def test_filter_selects_support_local_search_with_native_fallback(prototype: TestClient) -> None:
+    enter_demo(prototype)
+    page = prototype.get("/app/musicas")
+    for name in ("artist", "album", "year"):
+        assert re.search(
+            rf'<select id="song-[^"]+" name="{name}" data-searchable-select>', page.text
+        )
+    assert '<script src="/static/searchable-selects.js" defer></script>' in page.text
+    script = prototype.get("/static/searchable-selects.js")
+    assert script.status_code == 200
+    assert "fetch(" not in script.text
+    assert "innerHTML" not in script.text
+
+
 def test_songs_require_connection(browser: TestClient) -> None:
     page = browser.get("/app/musicas", follow_redirects=False)
     assert page.status_code == 303
