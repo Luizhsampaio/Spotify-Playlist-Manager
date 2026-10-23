@@ -84,8 +84,10 @@ a:hover { color: #477558; }
 .songs-table tbody tr:hover { background: #f9fbf5; }
 .track-artists, .track-duration, .track-album, .track-release { color: var(--muted); font-size: 11px; }
 .track-info { display: flex; gap: 12px; align-items: center; min-width: 0; }
-.track-art { width: 39px; height: 39px; flex-shrink: 0; display: grid; place-items: center; border-radius: 7px; background: #edf2e6; color: #7d9561; }
+.track-art { position: relative; width: 39px; height: 39px; flex-shrink: 0; display: grid; place-items: center; border-radius: 7px; background: #edf2e6; color: #7d9561; }
 .track-art .icon { width: 19px; height: 19px; }
+.track-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: white; }
+.track-art img[hidden], .track-copy .track-cover-status[hidden] { display: none; }
 .track-copy { min-width: 0; }
 .track-title, .track-copy small { display: block; overflow-wrap: anywhere; }
 .track-title { font-weight: 600; font-size: 12px; }
@@ -100,7 +102,7 @@ a.track-title:hover { text-decoration: underline; }
   .songs-filters { grid-template-columns: minmax(0, 1fr); }
   .songs-table th, .songs-table td { padding-inline: 8px; }
   .track-info { gap: 8px; }
-  .track-art { display: none; }
+  .track-art { width: 32px; height: 32px; }
   .songs-heading form, .songs-heading .button { width: 100%; }
 }
 .hero { display: grid; grid-template-columns: 1.07fr 1fr; gap: 64px; align-items: center; padding-block: 54px 78px; }

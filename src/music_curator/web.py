@@ -106,7 +106,8 @@ def create_app(
                 "X-Content-Type-Options": "nosniff",
                 "X-Frame-Options": "DENY",
                 "Content-Security-Policy": (
-                    "default-src 'none'; style-src 'self'; img-src 'self'; "
+                    "default-src 'none'; style-src 'self'; script-src 'self'; "
+                    f"img-src 'self'{' https://i.scdn.co/image/' if not demo else ''}; "
                     "form-action 'self' https://accounts.spotify.com; "
                     "frame-ancestors 'none'; base-uri 'none'"
                 ),

@@ -16,7 +16,11 @@ a aplicação carrega automaticamente a coleção nativa de Músicas Curtidas
 procurar playlists por nome. A tela recebe nomes das músicas, artistas, álbuns,
 duração, data de lançamento do álbum e links construídos a partir de IDs validados.
 A data de adição recebida na importação não é exibida na tabela.
-Não carregamos capas remotas nem áudio. A presença da credencial salva não comprova
+No modo real, a tela exibe capas dos álbuns usando somente URLs HTTPS no caminho
+`https://i.scdn.co/image/` recebidas na importação. O navegador acessa o CDN oficial
+diretamente, revelando seu IP ao CDN, sem enviar tokens Spotify nem a URL local
+como referência (`referrerpolicy="no-referrer"`). Não há download de áudio.
+A presença da credencial salva não comprova
 que a autorização continua válida no Spotify; a leitura pode exigir uma nova
 autorização, informada na tela. A operação de leitura de playlists preexistente permanece no
 backend, sem botão ou link no painel; se acionada diretamente, pode apresentar
@@ -39,8 +43,13 @@ Os critérios ficam na sessão do navegador e são enviados por POST com CSRF e
 validação de origem, não por parâmetros na URL. Sair, desconectar ou reautorizar
 também limpa os critérios. Não há logs de termos pesquisados ou de dados da biblioteca.
 
-Não há cache da biblioteca em disco, telemetria, scripts externos, CDN, imagens
-remotas, chamada de IA ou acesso ao perfil. A resposta HTML é marcada `no-store`.
+Não há cache da biblioteca em disco, telemetria, scripts externos, chamada de IA
+ou acesso ao perfil. A resposta HTML é marcada `no-store`. O aplicativo não grava
+capas em disco; o cache de imagens do navegador depende dos cabeçalhos do CDN.
+Capas não disponíveis ou com falha de download mantêm o ícone e um aviso explícito.
+O modo demo usa exclusivamente uma ilustração SVG fictícia local, com acesso a
+imagens remotas bloqueado pela política de conteúdo. Um script local trata apenas
+falhas de imagem, sem rede, armazenamento ou telemetria.
 Arquivos temporários e memória do navegador/sistema estão sujeitos às proteções
 do próprio Windows; isso não é isolamento contra malware ou outros processos do
 mesmo usuário.

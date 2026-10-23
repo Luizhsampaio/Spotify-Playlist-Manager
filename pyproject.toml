@@ -35,7 +35,7 @@ music-curator = "music_curator.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-music_curator = ["templates/*.html", "static/*.css"]
+music_curator = ["templates/*.html", "static/*.css", "static/*.js", "static/*.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -44,7 +44,9 @@ Abra **http://127.0.0.1:8765** no navegador:
 5. No **Meu espaço**, clique em **Minhas Músicas** no menu lateral: a lista
    já estará disponível, sem precisar clicar em um botão para importar.
 6. A tabela mostra **Música, Artista, Álbum, Data de Lançamento e Duração**;
-   faixas indisponíveis são sinalizadas. A data é a de lançamento do álbum
+   a música inclui uma miniatura da capa do álbum. Capas ausentes ou com falha
+   mantêm o ícone com aviso; faixas indisponíveis são sinalizadas.
+   A data é a de lançamento do álbum
    informada pelo Spotify, preservando ano ou mês quando não houver dia exato.
 7. Use a **pesquisa por palavra-chave** para procurar em músicas, artistas e álbuns,
    sem diferenciar maiúsculas ou acentos. Várias palavras precisam aparecer na
@@ -116,6 +118,12 @@ Encerre a demonstração antes de iniciar a versão real na mesma porta.
   use **Atualizar músicas** ou **Reconectar Spotify**, conforme a mensagem.
 - Não cria, renomeia, adiciona nem remove conteúdo.
 - Não classifica gêneros nem envia conteúdo Spotify a uma IA.
+- As capas usam os endereços já recebidos na importação, sem novas permissões.
+  No modo real, o navegador baixa as miniaturas diretamente do CDN oficial
+  `https://i.scdn.co/image/`, sem tokens Spotify ou envio da URL local como
+  referência. Isso compartilha o IP do navegador com o CDN; o navegador pode
+  armazenar imagens em cache. O aplicativo não grava cópias das capas em disco.
+  No demo, as capas são ilustrações fictícias locais, sem acesso ao CDN.
 - A importação percorre todas as páginas retornadas, sem truncar em 50 músicas.
   Se qualquer página falhar, não publica uma lista parcial; em falhas transitórias,
   mantém a última importação concluída com aviso. Falhas que exigem reconexão

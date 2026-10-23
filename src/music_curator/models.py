@@ -40,12 +40,26 @@ class Artist(BaseModel):
     name: str
 
 
+class AlbumImage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    url: str
+
+
 class Album(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     name: str
     release_date: str | None = None
     release_date_precision: Literal["year", "month", "day"] | None = None
+    images: list[AlbumImage] = Field(default_factory=list)
+
+    @property
+    def cover_url(self) -> str | None:
+        for image in reversed(self.images):
+            if re.fullmatch(r"https://i\.scdn\.co/image/[A-Za-z0-9]{1,128}", image.url):
+                return image.url
+        return None
 
     @field_validator("release_date")
     @classmethod

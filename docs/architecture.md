@@ -126,7 +126,7 @@ a lista da sessão e oferece nova autorização.
 
 Modelos tipados preservam músicas indisponíveis (`track: null`) como linhas
 explicitamente identificadas. Nomes são escapados pelo template. Links são
-construídos a partir de IDs validados; nenhuma capa ou mídia remota é carregada.
+construídos a partir de IDs validados; não há carregamento de áudio.
 Não é aplicado um limite artificial ao número de músicas. Como a biblioteca pode
 mudar durante a paginação, não se promete uma fotografia imutável da conta.
 
@@ -172,3 +172,22 @@ Resultados vazios de pesquisa são distintos de uma coleção importada vazia.
 Em telas pequenas, a tabela permite rolagem horizontal interna, sem esconder colunas.
 Filtros, resultados e estados vazios compartilham um único cartão com borda e
 fundo contínuos, preservando a rolagem interna e o foco visível da tabela.
+
+### Miniaturas de capas
+
+O modelo de álbum conserva `images` e seleciona a menor imagem confiável na ordem
+de tamanhos retornada pelo Spotify. Somente URLs HTTPS com host exato `i.scdn.co`
+e caminho `/image/` seguido de um identificador alfanumérico são exibidas, sem
+credenciais, porta, query ou fragmento. Ausência de capa confiável mantém um ícone
+e a indicação **Capa indisponível**, sem impedir a leitura da coleção.
+
+As miniaturas são exibidas integralmente, sem recorte, ao lado do título, inclusive
+em telas pequenas, com link para a faixa no Spotify quando disponível. O navegador
+carrega as imagens diretamente do CDN com lazy loading, sem token ou referrer
+local. A CSP permite apenas esse caminho de imagens no modo real e scripts locais;
+o script `album-covers.js` trata falhas com ícone e aviso, inclusive imagens que
+falharam antes da inicialização do script. Não há proxy, download no backend ou
+persistência de arquivos de capas. A política de IA permanece bloqueada.
+
+No demo, o template ignora URLs de imagens reais e usa somente a arte sintética
+local `demo-album-cover.svg`; a CSP continua bloqueando imagens externas.

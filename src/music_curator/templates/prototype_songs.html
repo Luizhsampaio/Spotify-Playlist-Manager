@@ -95,13 +95,21 @@
       <tbody>
         {% for item in collection.tracks %}
         {% set track = item.track %}
+        {% set cover_url = ("/static/demo-album-cover.svg" if demo else track.album.cover_url) if track else none %}
         <tr class="song-row">
-          <td><div class="track-info"><span class="track-art" aria-hidden="true">{{ symbol("music") }}</span>
+          <td><div class="track-info">
+            {% if track and track.url and not demo %}
+            <a class="track-art" href="{{ track.url }}" target="_blank" rel="noreferrer noopener" aria-label="Abrir {{ track.name }} no Spotify">
+            {% else %}<span class="track-art" aria-hidden="true">{% endif %}
+              {{ symbol("music") }}
+              {% if cover_url %}<img data-album-cover src="{{ cover_url }}" alt="" width="39" height="39" loading="lazy" decoding="async" referrerpolicy="no-referrer">{% endif %}
+            {% if track and track.url and not demo %}</a>{% else %}</span>{% endif %}
             <div class="track-copy">
               {% if track %}
                 {% if track.url and not demo %}<a class="track-title" href="{{ track.url }}" target="_blank" rel="noreferrer noopener">{{ track.name }}</a>
                 {% else %}<span class="track-title">{{ track.name }}</span>{% endif %}
                 {% if not track.id %}<small>Sem link disponível no Spotify</small>{% endif %}
+                <small data-cover-status class="track-cover-status" role="status" {% if cover_url %}hidden{% endif %}>Capa indisponível</small>
               {% else %}<span class="track-title">Faixa indisponível</span><small>O Spotify não disponibilizou os dados desta música.</small>{% endif %}
             </div>
           </div></td>
@@ -124,3 +132,4 @@
   A coleção é carregada ao entrar no aplicativo. Use “Atualizar músicas” para buscar mudanças feitas depois;
   não há sincronização contínua.</p>
 {% endblock %}
+{% block scripts %}<script src="/static/album-covers.js" defer></script>{% endblock %}
