@@ -193,6 +193,27 @@ Para ativar o scanner de segredos antes dos commits, caso tenha o comando `pre-c
 instalado, execute `pre-commit install`. A configuração está incluída no projeto.
 O CI também executa o scanner independentemente desse hook local.
 
+## Atualizações de dependências
+
+A configuração em [`.github/dependabot.yml`](.github/dependabot.yml) monitora
+as dependências Python e as GitHub Actions semanalmente, às segundas-feiras.
+Os PRs de atualização de versões são direcionados à `develop`, com limite de
+três PRs Python e dois de Actions. Versões menores e patches são agrupados por
+ecossistema; versões maiores ficam separadas para revisão. Não há merge automático.
+
+Como o projeto usa intervalos de versões sem lockfile, as atualizações Python
+podem elevar os limites declarados no `pyproject.toml` (`versioning-strategy: increase`).
+Revise compatibilidade e resultados do CI antes de fazer merge. Essa configuração
+não instala dependências automaticamente no computador e não substitui um lockfile.
+
+Para ativar, o arquivo precisa ser publicado na **branch padrão do repositório**
+(normalmente `main`), por meio de revisão e merge. A configuração somente na
+`develop` ainda não ativa o agendamento.
+Os **Dependabot alerts** e **Dependabot security updates** devem ser habilitados
+nas configurações de segurança do repositório no GitHub; o arquivo YAML não os
+habilita. As atualizações de segurança usam a branch padrão, não a `target-branch`
+definida para os PRs de versões. Os limites acima são para atualizações de versões.
+
 ## Validação manual com sua conta
 
 Após configurar seu aplicativo, confira:
