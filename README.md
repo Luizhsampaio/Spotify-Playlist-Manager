@@ -122,10 +122,11 @@ Clique em **Por artista** para abrir uma janela de configuração:
    do artista; quando ainda não existe vínculo, isso também é indicado.
 2. Selecione um ou mais artistas. **Selecionar todos** inclui todos os artistas,
    inclusive os ocultos pela pesquisa; **Limpar seleção** desmarca todos.
-3. Clique em **Salvar**. No modo demo, isso guarda apenas a seleção nesta sessão.
+3. Clique em **Configurar**. No modo demo, isso guarda apenas a seleção nesta sessão.
    No modo real, primeiro verifica permissões e todos os vínculos envolvidos.
-   Se houver conflito, o envio inteiro é interrompido antes de alterar playlists
-   ou persistir a nova seleção, e uma tela explica os problemas por artista.
+   Se houver conflito impeditivo, o envio inteiro é interrompido antes de alterar
+   playlists ou persistir a nova seleção. O próprio pop-up é reaberto com os avisos
+   por artista e as marcações enviadas preservadas para edição.
    Sem conflitos, salva a seleção por conta e cria ou sincroniza as playlists públicas
    selecionadas. A sincronização substitui o conteúdo para refletir exatamente as
    músicas elegíveis das Músicas Curtidas; faixas manuais ou removidas da coleção
@@ -162,17 +163,24 @@ comparação das faixas.
 
 ### Playlists removidas manualmente e conflitos
 
-O **Salvar** verifica se os IDs mapeados continuam em **Sua Biblioteca**, além de
+O **Configurar** verifica se os IDs mapeados continuam em **Sua Biblioteca**, além de
 validar proprietário, visibilidade pública, ausência de colaboração e acesso às
 faixas que serão sincronizadas. Abrir a configuração apenas mostra os IDs locais;
 a verificação remota ocorre no salvamento, sem polling.
 
-Na tela de revisão, o usuário pode voltar à configuração/cancelar, verificar
-novamente e tentar salvar, ou reconectar o Spotify. Quando a ausência na biblioteca
-é confirmada, pode **Confirmar substituições e aplicar seleção**: cria novas playlists
-somente para artistas ausentes que continuaram selecionados; vínculos ausentes
-desmarcados são apenas apagados localmente. O restante da seleção também é aplicado.
-A playlist antiga pode continuar existindo e acessível por link.
+Os problemas aparecem no próprio pop-up, com destaque nos artistas afetados e o ID
+antigo preservado. No rodapé do pop-up ficam apenas **Cancelar** e **Confirmar e Salvar**.
+Para reconectar, cancele e use a opção de desconexão no painel antes de conectar
+novamente, sem uma tela de conflitos separada.
+
+Quando a ausência na biblioteca é confirmada, desmarcar o artista e clicar em
+**Confirmar e Salvar** limpa o vínculo local sem recriação ou remoção remota. Se quiser
+continuar gerenciando o artista, mantenha-o marcado e use o mesmo **Confirmar e Salvar**.
+A confirmação considera as marcações atuais do pop-up, cria substitutas apenas
+para os ausentes selecionados e também aplica o restante da seleção. Outros
+conflitos impeditivos continuam bloqueando o envio inteiro.
+A playlist antiga pode continuar existindo e acessível por link. Cancelar ou fechar
+o pop-up de conflitos retorna à configuração persistida, sem gravar as edições.
 
 Timeout, acesso negado, limite de consultas, respostas inválidas e falhas do Spotify
 não comprovam ausência: preservam o ID e não liberam substituição. Um erro 404 nos

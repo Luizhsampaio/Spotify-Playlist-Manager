@@ -62,7 +62,6 @@ class PlaylistValidationIssue:
 class PendingPlaylistSave:
     token: str
     account_id: str
-    selected_keys: set[str]
     previous_selection: set[str]
     records: dict[str, ManagedPlaylistRecord]
     missing_keys: set[str]
@@ -655,6 +654,7 @@ def create_app(
         open_artist_dialog: bool = False,
         validation_issues: list[PlaylistValidationIssue] | None = None,
         attempted_selection: set[str] | None = None,
+        playlist_records: dict[str, ManagedPlaylistRecord] | None = None,
     ) -> Response:
         sid, session, created = session_for(request)
         if message is None:
@@ -687,13 +687,15 @@ def create_app(
             try:
                 account_id = await client.current_account_id()
                 session.selected_artists = registry.selection_for(account_id)
-                managed_playlist_ids = {
-                    artist_key: record.playlist_id
-                    for artist_key, record in registry.records_for(account_id).items()
-                    if record.playlist_id is not None and record.state != "removed"
-                }
+                playlist_records = registry.records_for(account_id)
             except AppError as exc:
                 message, error, status_code = str(exc), True, 503
+        if signed_in and playlist_records is not None:
+            managed_playlist_ids = {
+                artist_key: record.playlist_id
+                for artist_key, record in playlist_records.items()
+                if record.playlist_id is not None and record.state != "removed"
+            }
         if name in PRODUCT_PAGES and not signed_in and status_code == 200:
             response: Response = RedirectResponse("/entrar", status_code=303)
         elif name == "login" and signed_in and not message:
@@ -701,9 +703,7 @@ def create_app(
         else:
             response = templates.TemplateResponse(
                 request=request,
-                name="prototype_playlist_conflicts.html"
-                if validation_issues is not None
-                else f"prototype_{name}.html",
+                name=f"prototype_{name}.html",
                 context={
                     "csrf": session.csrf,
                     "signed_in": signed_in,
@@ -722,13 +722,25 @@ def create_app(
                     "artist_collection": artist_playlists(session.tracks)
                     if name == "managed_playlists" and signed_in and session.tracks is not None
                     else None,
-                    "selected_artists": session.selected_artists if signed_in else set(),
+                    "selected_artists": (
+                        attempted_selection
+                        if attempted_selection is not None
+                        else session.selected_artists
+                    )
+                    if signed_in
+                    else set(),
                     "managed_playlist_ids": managed_playlist_ids,
+                    "playlist_bindings_available": playlist_records is not None,
                     "tracks_revision": session.tracks_revision,
-                    "open_artist_dialog": open_artist_dialog,
+                    "open_artist_dialog": open_artist_dialog or validation_issues is not None,
                     "playlist_results": session.playlist_results,
                     "validation_issues": validation_issues,
-                    "attempted_selection": attempted_selection or set(),
+                    "conflicted_artist_keys": {
+                        issue.artist_key for issue in validation_issues or []
+                    },
+                    "missing_artist_keys": {
+                        issue.artist_key for issue in validation_issues or [] if issue.missing
+                    },
                     "pending_playlist_save": session.pending_playlist_save,
                 },
                 status_code=status_code,
@@ -804,7 +816,7 @@ def create_app(
                 message = "A colecao foi atualizada. Reabra a configuracao e selecione os artistas."
                 status = 409
             elif set(fields) - (
-                {"csrf", "revision", "confirmation"}
+                {"csrf", "revision", "artists", "confirmation"}
                 if confirming
                 else {"csrf", "revision", "artists"}
             ):
@@ -813,11 +825,7 @@ def create_app(
                 message = "A confirmacao expirou ou ja foi utilizada. Verifique novamente."
                 status = 409
             else:
-                selected = (
-                    list(pending.selected_keys)
-                    if confirming and pending is not None
-                    else fields.get("artists", [])
-                )
+                selected = fields.get("artists", [])
                 available = {group.key for group in artist_playlists(session.tracks).playlists}
                 if len(selected) != len(set(selected)) or not set(selected).issubset(available):
                     message = "Selecao de artistas invalida. Reabra a configuracao."
@@ -828,6 +836,7 @@ def create_app(
                         session.selected_artists = selected_keys
                         session.playlist_results = []
                     else:
+                        records: dict[str, ManagedPlaylistRecord] | None = None
                         try:
                             async with playlist_operation_lock:
                                 version = connection_version
@@ -857,18 +866,22 @@ def create_app(
                                 missing_keys = {
                                     issue.artist_key for issue in issues if issue.missing
                                 }
+                                blocking_issues = [
+                                    issue
+                                    for issue in issues
+                                    if not issue.missing or issue.artist_key in selected_keys
+                                ]
                                 confirmed = (
                                     confirming
                                     and pending is not None
                                     and missing_keys == pending.missing_keys
                                     and len(missing_keys) == len(issues)
                                 )
-                                if issues and not confirmed:
+                                if blocking_issues and not confirmed:
                                     if len(missing_keys) == len(issues):
                                         session.pending_playlist_save = PendingPlaylistSave(
                                             token=secrets.token_urlsafe(32),
                                             account_id=account_id,
-                                            selected_keys=selected_keys,
                                             previous_selection=previous_selection,
                                             records=records,
                                             missing_keys=missing_keys,
@@ -886,6 +899,7 @@ def create_app(
                                         status_code=409,
                                         validation_issues=issues,
                                         attempted_selection=selected_keys,
+                                        playlist_records=records,
                                     )
                                 if confirming and not confirmed:
                                     raise AppError(
@@ -981,6 +995,7 @@ def create_app(
                                 status_code=502,
                                 validation_issues=[],
                                 attempted_selection=selected_keys,
+                                playlist_records=records,
                             )
         if message:
             return await product_page(

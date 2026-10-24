@@ -62,7 +62,7 @@ No modo real, cada clique em **Salvar** é o consentimento explícito para aplic
 seleção atual; não há interruptor global. O app salva a seleção por conta antes
 das mutações, mas somente após validar todos os vínculos envolvidos. A validação
 consulta a presença dos IDs registrados em Sua Biblioteca, detalhes das playlists
-e faixas dos destinos selecionados. Um conflito bloqueia o envio inteiro antes de
+e faixas dos destinos selecionados. Um conflito impeditivo bloqueia o envio inteiro antes de
 alterações, preservando a seleção e os registros anteriores.
 O app consulta somente o ID imutável retornado por `GET /v1/me` (`user-read-private`)
 para isolar o registro local; não solicita nem guarda email ou nome de perfil.
@@ -76,9 +76,13 @@ por link, mas o ID local é apagado após confirmação. Selecionar o artista no
 cria uma playlist nova. Se a remoção tiver resultado incerto, o ID é mantido
 temporariamente e impede criação automática até resolução segura.
 
-Se uma playlist for removida manualmente do Spotify, a tela de revisão permite
-cancelar, verificar novamente ou reconectar. A ausência confirmada na biblioteca
-permite oferecer a criação de uma substituta, mediante confirmação explícita.
+Se uma playlist for removida manualmente do Spotify, os avisos ficam no próprio
+pop-up, com as marcações enviadas preservadas somente para edição. O usuário pode
+desmarcar um ausente e usar **Confirmar e Salvar** para limpar o vínculo ou manter
+o artista marcado para confirmar a criação de uma substituta. Cancelar permite
+voltar ao painel, inclusive para desconectar e reconectar se necessário.
+A ausência confirmada na biblioteca permite oferecer a criação de
+uma substituta para os que permanecerem selecionados, mediante confirmação explícita.
 Consultas inconclusivas não autorizam apagar IDs ou criar substitutas. A confirmação
 fica apenas na memória da sessão por até dez minutos, sem novos dados na URL,
 sem logs e com revalidação antes de aplicar a seleção.

@@ -5,6 +5,7 @@ if (artistDialog) {
   const artistOptions = Array.from(artistDialog.querySelectorAll("[data-artist-option]"));
   const artistForm = artistDialog.querySelector("form");
   let lastOpener = document.querySelector("[data-open-artist-dialog]");
+  let submitting = false;
 
   function updateSelection() {
     const count = artistForm.querySelectorAll('input[name="artists"]:checked').length;
@@ -42,7 +43,13 @@ if (artistDialog) {
       artistDialog.close();
     }
   });
-  artistDialog.addEventListener("close", () => lastOpener.focus({ preventScroll: true }));
+  artistDialog.addEventListener("close", () => {
+    if (artistDialog.hasAttribute("data-playlist-conflicts")) {
+      window.location.assign("/app/playlists");
+    } else {
+      lastOpener.focus({ preventScroll: true });
+    }
+  });
   artistDialog.querySelector("[data-select-all-artists]").addEventListener("click", () => {
     for (const input of artistForm.querySelectorAll('input[name="artists"]')) input.checked = true;
     updateSelection();
@@ -56,10 +63,22 @@ if (artistDialog) {
     if (event.key === "Enter") event.preventDefault();
   });
   artistForm.addEventListener("change", updateSelection);
-  artistForm.addEventListener("submit", () => {
-    const submit = artistDialog.querySelector("[data-artist-save-submit]");
-    submit.disabled = true;
-    submit.textContent = "Salvando...";
+  artistForm.addEventListener("submit", event => {
+    if (submitting) {
+      event.preventDefault();
+      return;
+    }
+    submitting = true;
+    const submit = event.submitter;
+    if (submit?.name) {
+      const confirmation = document.createElement("input");
+      confirmation.type = "hidden";
+      confirmation.name = submit.name;
+      confirmation.value = submit.value;
+      artistForm.append(confirmation);
+    }
+    for (const button of artistForm.querySelectorAll('button[type="submit"]')) button.disabled = true;
+    if (submit) submit.textContent = "Validando e salvando...";
   });
   updateSelection();
   if (artistDialog.hasAttribute("data-open-on-load")) artistDialog.showModal();

@@ -286,7 +286,7 @@ def test_demo_page_saves_selection_without_external_preview(prototype: TestClien
     assert "playlist-preview" not in response.text
     assert "Prévia por artista" not in response.text
     assert "Visualizar prévia" not in response.text
-    assert "data-artist-save-submit>Salvar</button>" in response.text
+    assert "data-artist-save-submit>Configurar</button>" in response.text
     assert prototype.get("/static/managed-playlists.js").status_code == 200
     assert selected_keys(prototype.get(PAGE).text) == {groups[0].key, groups[1].key}
 
@@ -508,6 +508,8 @@ def test_active_save_creates_and_exactly_syncs_selected_playlists(tmp_path: Path
     with browser:
         page = browser.get(PAGE)
         assert "Sem playlist vinculada" in page.text
+        assert "managed-modal-note" not in page.text
+        assert "Ao salvar, a seleção fica salva para esta conta" not in page.text
         result = post_preview(browser, keys, page.text)
         assert result.status_code == 200
         assert "Todas as faixas foram confirmadas no Spotify." in result.text
@@ -680,13 +682,16 @@ def test_uncertain_create_is_persisted_and_not_retried(tmp_path: Path) -> None:
         assert calls.count(("POST", "/v1/me/playlists")) == 1
 
 
-def confirm_replacement(browser: TestClient, page: httpx.Response) -> httpx.Response:
+def confirm_replacement(
+    browser: TestClient, page: httpx.Response, keys: list[str] | None = None
+) -> httpx.Response:
     response = browser.post(
         PREVIEW,
         data={
             "csrf": field(page.text, "csrf"),
             "revision": field(page.text, "revision"),
             "confirmation": field(page.text, "confirmation"),
+            "artists": sorted(selected_keys(page.text)) if keys is None else keys,
         },
         headers=HEADERS,
     )
@@ -718,11 +723,30 @@ def test_missing_playlist_requires_choice_and_creates_only_after_confirmation(
         calls.clear()
         conflict = post_preview(browser, [group.key])
         assert conflict.status_code == 409
-        assert "Revise o salvamento" in conflict.text
-        assert "nao esta em Sua Biblioteca" in conflict.text
+        assert "Resolva os conflitos aqui" in conflict.text
+        assert "data-open-on-load" in conflict.text
+        assert "data-playlist-conflicts" in conflict.text
+        assert selected_keys(conflict.text) == {group.key}
+        assert f"Playlist ID: <span>{original_id}</span>" in conflict.text
+        assert (
+            "Identificamos que uma ou mais playlists gerenciadas foram excluídas" in conflict.text
+        )
+        assert "Caso não queira recriá-las, desmarque o artista" in conflict.text
+        assert '<strong>"Confirma e Salvar"</strong>' in conflict.text
+        assert "Playlists removidas:" in conflict.text
+        assert "Voce pode confirmar a criacao" not in conflict.text
+        assert "Depois que elas começarem" not in conflict.text
         assert original_id in conflict.text
-        assert "Confirmar substituições e aplicar seleção" in conflict.text
-        assert "Verificar novamente e tentar salvar" in conflict.text
+        assert "Confirmar e Salvar" in conflict.text
+        assert "Confirmar substituições e salvar" not in conflict.text
+        assert "Ausente de Sua Biblioteca" in conflict.text
+        dialog = re.search(r"<dialog\b.*?</dialog>", conflict.text, re.DOTALL)
+        assert dialog
+        assert dialog[0].count('type="submit"') == 1
+        assert re.findall(r"data-artist-save-submit[^>]*>([^<]+)</button>", dialog[0]) == [
+            "Confirmar e Salvar"
+        ]
+        assert "playlist-reconnect" not in dialog[0]
         assert playlist_writes(calls) == []
         assert path.read_bytes() == before
 
@@ -752,10 +776,10 @@ def test_absent_deselected_playlist_can_be_cleared_without_remote_mutation(
         assert record.playlist_id is not None
         remote[record.playlist_id]["in_library"] = False
         calls.clear()
-        conflict = post_preview(browser, [])
+        conflict = post_preview(browser, [group.key])
         assert conflict.status_code == 409
         assert registry.selection_for("syntheticAccount") == {group.key}
-        result = confirm_replacement(browser, conflict)
+        result = confirm_replacement(browser, conflict, [])
         assert result.status_code == 200
         assert registry.records_for("syntheticAccount") == {}
         assert registry.selection_for("syntheticAccount") == set()
@@ -791,7 +815,8 @@ def test_validation_failure_in_one_artist_blocks_entire_submission(
         calls.clear()
         result = post_preview(browser, keys[:3])
         assert result.status_code == 409
-        assert "Revise o salvamento" in result.text
+        assert "Resolva os conflitos aqui" in result.text
+        assert selected_keys(result.text) == set(keys[:3])
         assert 'name="confirmation"' not in result.text
         assert path.read_bytes() == before
         assert remote["syntheticPlaylist1"]["items"][-1] == "syntheticManualTrack"
@@ -823,7 +848,10 @@ def test_library_verification_failure_never_authorizes_replacement(
         calls.clear()
         result = post_preview(browser, [key])
         assert result.status_code == 502
-        assert "Revise o salvamento" in result.text
+        assert "Resolva os conflitos aqui" in result.text
+        assert selected_keys(result.text) == {key}
+        assert "Playlist ID: <span>syntheticPlaylist1</span>" in result.text
+        assert "data-open-on-load" in result.text
         assert 'name="confirmation"' not in result.text
         assert "synthetic-private-error" not in result.text
         assert playlist_writes(calls) == []
@@ -948,7 +976,7 @@ def test_management_permissions_are_checked_before_creating_any_playlist(tmp_pat
         result = post_preview(browser, [key])
         assert result.status_code == 502
         assert "playlist-modify-public" in result.text
-        assert "Reconectar Spotify" in result.text
+        assert "Se precisar reconectar o Spotify" in result.text
         assert playlist_writes(calls) == []
         assert not path.exists()
 
@@ -985,10 +1013,11 @@ def test_replacement_confirmation_rejects_forged_requests(tmp_path: Path, invali
         assert post_preview(browser, [key]).status_code == 200
         remote["syntheticPlaylist1"]["in_library"] = False
         conflict = post_preview(browser, [key])
-        data = {
+        data: dict[str, str | list[str]] = {
             "csrf": field(conflict.text, "csrf"),
             "revision": field(conflict.text, "revision"),
             "confirmation": field(conflict.text, "confirmation"),
+            "artists": [key],
         }
         if invalid == "token":
             data["confirmation"] = "forged"
@@ -1002,5 +1031,49 @@ def test_replacement_confirmation_rejects_forged_requests(tmp_path: Path, invali
             headers={"Origin": "https://external.example"} if invalid == "origin" else HEADERS,
         )
         assert result.status_code == (409 if invalid == "token" else 403)
+        assert playlist_writes(calls) == []
+        assert path.read_bytes() == before
+
+
+def test_confirmation_uses_current_modal_selection_and_cleans_deselected_missing_binding(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "managed.json"
+    browser, remote, calls = synthetic_spotify_app(path)
+    keys = [group.key for group in artist_playlists(PROTOTYPE_TRACKS).playlists[:2]]
+    registry = ManagedPlaylistRegistry(path)
+    with browser:
+        assert post_preview(browser, keys).status_code == 200
+        remote["syntheticPlaylist1"]["in_library"] = False
+        remote["syntheticPlaylist2"]["in_library"] = False
+        conflict = post_preview(browser, keys)
+        assert conflict.status_code == 409
+        calls.clear()
+        result = confirm_replacement(browser, conflict, [keys[0]])
+        assert result.status_code == 200
+        assert registry.selection_for("syntheticAccount") == {keys[0]}
+        records = registry.records_for("syntheticAccount")
+        assert set(records) == {keys[0]}
+        assert records[keys[0]].playlist_id == "syntheticPlaylist3"
+        assert calls.count(("POST", "/v1/me/playlists")) == 1
+        assert ("DELETE", "/v1/me/library") not in calls
+
+
+def test_cancel_conflicts_restores_saved_selection_without_mutation(tmp_path: Path) -> None:
+    path = tmp_path / "managed.json"
+    browser, remote, calls = synthetic_spotify_app(path)
+    keys = [group.key for group in artist_playlists(PROTOTYPE_TRACKS).playlists[:2]]
+    with browser:
+        assert post_preview(browser, keys[:1]).status_code == 200
+        remote["syntheticPlaylist1"]["in_library"] = False
+        before = path.read_bytes()
+        calls.clear()
+        conflict = post_preview(browser, keys)
+        assert conflict.status_code == 409
+        assert selected_keys(conflict.text) == set(keys)
+        cancelled = browser.get(PAGE)
+        assert selected_keys(cancelled.text) == set(keys[:1])
+        assert "data-playlist-conflicts" not in cancelled.text
+        assert confirm_replacement(browser, conflict).status_code == 409
         assert playlist_writes(calls) == []
         assert path.read_bytes() == before

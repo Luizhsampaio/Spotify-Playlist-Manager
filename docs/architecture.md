@@ -275,22 +275,35 @@ estados locais incertos, identidade do artista, propriedade da conta, duplicidad
 de destinos e nomes válidos. Consulta `GET /v1/me/library/contains` em lotes de até
 40 URIs para verificar presença, além dos detalhes dos destinos presentes e das
 faixas dos selecionados. As respostas devem ser listas de booleanos estritos com
-o tamanho exato do lote. Um problema interrompe o envio inteiro e renderiza
-`prototype_playlist_conflicts.html`, com explicação e ações de escolha.
+o tamanho exato do lote. Um problema impeditivo interrompe o envio inteiro e
+renderiza `prototype_managed_playlists.html` com o dialog aberto, avisos dentro do
+formulário e seleção enviada preservada apenas para edição. Os IDs vêm do snapshot
+da conta já verificado, sem novas consultas para renderizar o erro; quando não
+foram carregados, a interface informa que o vínculo não foi verificado.
 
 Somente presença `false` confirmada permite oferecer substituição, sem descartar
 o ID durante a verificação. Timeout, 401/403, 429, 5xx, payload inválido e 404 de
 detalhes não são convertidos em exclusão. Propriedade, privacidade e colaboração
 incompatíveis exigem resolução pelo usuário; não são alteradas silenciosamente.
 
-O usuário pode cancelar/editar, verificar novamente ou reconectar. A confirmação
+O botão inicial é **Configurar**. Em conflitos, o rodapé oferece somente
+**Cancelar** e **Confirmar e Salvar**, tanto para recriar ausentes selecionados
+quanto para limpar ausentes desmarcados. Para reconectar, o usuário cancela e
+usa o controle de desconexão do painel antes de conectar novamente. A confirmação
 explícita de substituição fica em `BrowserSession`, vinculada a token de uso único,
-conta, revisão da coleção, seleção pretendida, seleção anterior e snapshot dos
+conta, revisão da coleção, seleção anterior e snapshot dos
 registros. Expira em dez minutos. A confirmação revalida os vínculos sob o lock
 global; mudanças no contexto ou nos destinos ausentes interrompem a aplicação.
-Somente então os registros ausentes confirmados são descartados: selecionados são
-recriados pelo fluxo normal, com proteção de criação incerta; desmarcados são
-limpos sem mutação remota. O GET da configuração cancela confirmações pendentes.
+O formulário de confirmação envia as marcações atuais, não uma seleção congelada
+da tentativa anterior. Ausentes selecionados exigem essa confirmação para recriar
+pelo fluxo normal, com proteção de criação incerta. Ausentes desmarcados podem
+ser limpos sem mutação remota, após revalidação e somente se não houver outros
+impedimentos. O único submit do modal recebe nome/valor de confirmação somente
+quando há autorização pendente por ausência comprovada. Nos demais conflitos,
+o mesmo botão apenas reenvia a seleção para nova validação, sem autorizar recriação.
+Cancelar/fechar o dialog de conflitos retorna por GET à configuração salva,
+invalidando a confirmação pendente. O submit preserva o nome/valor do botão de
+confirmação antes de desabilitar os botões para evitar envio duplicado.
 
 O Spotify não oferece uma transação para o lote inteiro. A fase prévia evita
 iniciar operações com conflitos conhecidos, mas não impede mudanças externas ou

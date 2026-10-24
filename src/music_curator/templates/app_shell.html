@@ -25,7 +25,7 @@
     <header class="app-topbar"><span>Meu espaço <span class="breadcrumb">/ {{ "Minhas Músicas" if active_page == "songs" else ("Playlists Gerenciadas" if active_page == "managed_playlists" else "Visão geral") }}</span></span>
       <span class="session-badge"><span class="status-dot"></span> Spotify · {{ "simulado" if demo else ("conexão salva" if signed_in else "indisponível") }}</span></header>
     <main id="conteudo" class="dashboard-content">
-      {{ feedback() }}
+      {% if not open_artist_dialog %}{{ feedback() }}{% endif %}
       {% if demo and active_page != "songs" %}
       <div class="demo-banner" role="note">{{ symbol("shield") }}
         <span><strong>Modo protótipo.</strong> Tudo aqui é fictício. Sua conta Spotify não está conectada.</span>

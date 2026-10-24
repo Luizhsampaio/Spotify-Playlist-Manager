@@ -25,7 +25,7 @@
 {% if artist_collection.skipped_tracks %}
 <p class="library-privacy">{{ artist_collection.skipped_tracks }} item(ns) sem faixa, identificação da música ou artista foram desconsiderados. Nenhum dado foi inventado.</p>
 {% endif %}
-<dialog id="artist-playlist-dialog" class="playlist-dialog" aria-labelledby="artist-dialog-title" aria-describedby="artist-dialog-description" {% if open_artist_dialog %}data-open-on-load{% endif %}>
+<dialog id="artist-playlist-dialog" class="playlist-dialog" aria-labelledby="artist-dialog-title" aria-describedby="artist-dialog-description" {% if open_artist_dialog %}data-open-on-load{% endif %} {% if validation_issues is not none %}data-playlist-conflicts{% endif %}>
   <div class="playlist-dialog-heading">
     <div><span class="eyebrow">CONFIGURAÇÃO</span><h2 id="artist-dialog-title">Playlist por artista</h2></div>
     <button type="button" class="dialog-close" data-close-artist-dialog aria-label="Fechar configuração" autofocus>×</button>
@@ -34,22 +34,39 @@
   <form id="artist-settings-form" method="post" action="/app/playlists/por-artista/salvar">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="revision" value="{{ tracks_revision }}">
+    {% if validation_issues is not none %}
+    <section class="playlist-conflicts" aria-labelledby="playlist-conflicts-title">
+      <h3 id="playlist-conflicts-title">Resolva os conflitos aqui</h3>
+      {% if pending_playlist_save %}
+      <p>Identificamos que uma ou mais playlists gerenciadas foram excluídas e/ou removidas manualmente de Sua Biblioteca.
+        Caso não queira recriá-las, desmarque o artista na lista abaixo antes de prosseguir.
+        Caso queira recriar a playlist, basta seguir com a opção <strong>"Confirma e Salvar"</strong></p>
+      <p><strong>Playlists removidas:</strong></p>
+      {% else %}
+      <p>Confira os avisos abaixo e tente novamente. Se precisar reconectar o Spotify,
+        cancele e use a opção de desconexão no painel para conectar novamente.</p>
+      {% endif %}
+      {% if validation_issues %}
+      <ul>
+        {% for issue in validation_issues %}
+        <li><strong>{{ issue.artist_name }}</strong>
+          {% if issue.playlist_id %}<span> · Playlist ID: {{ issue.playlist_id }}</span>{% endif %}
+          {% if not pending_playlist_save %}<p>{{ issue.message }}</p>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </section>
+    {% endif %}
     <fieldset class="artist-settings-fields">
     <legend class="visually-hidden">Configuração dos artistas</legend>
   <p id="artist-dialog-description">Selecione os artistas para esta configuração.
     A fonte é toda a sua coleção de Músicas Curtidas, independentemente dos filtros de Minhas Músicas.</p>
-  <p class="managed-modal-note">
-    {% if demo %}
-    Modo demonstração: Salvar guarda somente a seleção nesta sessão e não altera o Spotify.
-    {% else %}
-    Ao salvar, a seleção fica salva para esta conta e cada playlist será pública e espelhará exatamente as músicas elegíveis
-    da sua coleção. Faixas adicionadas manualmente ou removidas das Músicas Curtidas também serão
-    removidas da playlist. Artistas desmarcados saem de Sua Biblioteca e seu ID local é apagado,
-    mas a playlist não é excluída e pode continuar pública ou acessível por link.
-    {% endif %}
-    Colaborações entram na playlist de cada artista participante selecionado; uma mesma música
-    não se repete dentro da mesma playlist.
+  {% if demo %}
+  <p class="library-privacy">
+    Modo demonstração: a seleção fica somente nesta sessão e não altera o Spotify.
   </p>
+  {% endif %}
     <div class="artist-search-field"><label for="managed-artist-search">Pesquisar artistas</label>
       <input id="managed-artist-search" type="search" placeholder="Digite o nome do artista" autocomplete="off" data-artist-search>
     </div>
@@ -60,8 +77,8 @@
     </div>
     <fieldset class="artist-options"><legend class="visually-hidden">Artistas identificados nas Músicas Curtidas</legend>
       {% for playlist in artist_collection.playlists %}
-      <label class="artist-option" data-artist-option data-artist-name="{{ playlist.name }}">
-        <input type="checkbox" name="artists" value="{{ playlist.key }}" {% if playlist.key in selected_artists %}checked{% endif %}>
+      <label class="artist-option{% if playlist.key in conflicted_artist_keys %} artist-option-conflict{% endif %}" data-artist-option data-artist-name="{{ playlist.name }}">
+        <input type="checkbox" name="artists" value="{{ playlist.key }}" {% if playlist.key in selected_artists %}checked{% endif %} {% if playlist.key in missing_artist_keys %}data-missing-playlist{% endif %}>
         <span class="artist-option-details"><strong>{{ playlist.name }}</strong>
           <small>{{ playlist.tracks | length }} {{ "música" if playlist.tracks | length == 1 else "músicas" }}{% if not playlist.artist_id %} · Sem ID: agrupado por nome{% endif %}</small></span>
         <small class="artist-playlist-id">
@@ -69,8 +86,15 @@
           Playlist ID: <span>{{ managed_playlist_ids[playlist.key] }}</span>
           {% elif demo %}
           Sem vínculo com Spotify no modo demonstração
+          {% elif not playlist_bindings_available %}
+          Vínculo não verificado nesta tentativa
           {% else %}
           Sem playlist vinculada
+          {% endif %}
+          {% if playlist.key in missing_artist_keys %}
+          <span class="artist-binding-warning">Ausente de Sua Biblioteca</span>
+          {% elif playlist.key in conflicted_artist_keys %}
+          <span class="artist-binding-warning">Vínculo com conflito — confira o aviso</span>
           {% endif %}
         </small>
       </label>
@@ -80,7 +104,8 @@
     </fieldset>
     <div class="playlist-dialog-footer">
       <div><button class="button button-dark" type="button" data-close-artist-dialog>Cancelar</button>
-        <button class="button button-green" type="submit" data-artist-save-submit>Salvar</button></div>
+        <button class="button button-green" type="submit" data-artist-save-submit{% if pending_playlist_save and validation_issues is not none %} name="confirmation" value="{{ pending_playlist_save.token }}"{% endif %}>{% if validation_issues is not none %}Confirmar e Salvar{% else %}Configurar{% endif %}</button>
+      </div>
     </div>
   </form>
 </dialog>
