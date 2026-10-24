@@ -19,7 +19,11 @@ from music_curator.config import ORIGIN, Settings
 from music_curator.credentials import CredentialStore, WindowsCredentialStore
 from music_curator.demo import PROTOTYPE_TRACKS
 from music_curator.library import SongFilters, song_collection
-from music_curator.managed_registry import ManagedPlaylistRecord, ManagedPlaylistRegistry
+from music_curator.managed_registry import (
+    ManagedPlaylistRecord,
+    ManagedPlaylistRegistry,
+    default_registry_path,
+)
 from music_curator.models import (
     AppError,
     MutationOutcomeUnknown,
@@ -361,9 +365,7 @@ def create_app(
         transport,
     )
     registry = ManagedPlaylistRegistry(
-        registry_path
-        if registry_path is not None
-        else Path.cwd() / ".local-data" / "spotify" / "managed-playlists.json"
+        registry_path if registry_path is not None else default_registry_path()
     )
     sessions: dict[str, BrowserSession] = {}
     connection_version = 0
@@ -561,10 +563,16 @@ def create_app(
             reconnect = session.import_reconnect
             import_failed = True
             name = "songs"
+        managed_playlist_ids: dict[str, str] = {}
         if name == "managed_playlists" and signed_in and status_code == 200 and not demo:
             try:
                 account_id = await client.current_account_id()
                 session.selected_artists = registry.selection_for(account_id)
+                managed_playlist_ids = {
+                    artist_key: record.playlist_id
+                    for artist_key, record in registry.records_for(account_id).items()
+                    if record.playlist_id is not None and record.state != "removed"
+                }
             except AppError as exc:
                 message, error, status_code = str(exc), True, 503
         if name in PRODUCT_PAGES and not signed_in and status_code == 200:
@@ -594,6 +602,7 @@ def create_app(
                     if name == "managed_playlists" and signed_in and session.tracks is not None
                     else None,
                     "selected_artists": session.selected_artists if signed_in else set(),
+                    "managed_playlist_ids": managed_playlist_ids,
                     "tracks_revision": session.tracks_revision,
                     "open_artist_dialog": open_artist_dialog,
                     "playlist_results": session.playlist_results,

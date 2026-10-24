@@ -244,7 +244,11 @@ está no registro `.local-data/spotify/managed-playlists.json`, particionado pel
 e IDs/estados das playlists, nunca faixas da biblioteca. A seleção sobrevive a
 sessões e navegadores da mesma conta. Atualizar músicas não a invalida. Busca e
 seleção não chamam a API. O demo não acessa transporte externo ou credenciais e
-mantém a seleção somente na sessão.
+mantém a seleção somente na sessão. O modal exibe ao lado de cada artista o ID
+da playlist registrada que continua vinculada; artistas sem registro ativo são
+marcados como sem playlist vinculada.
+O caminho do registro é resolvido a partir da localização do aplicativo, não do
+diretório de trabalho do processo, para manter a persistência entre reinicializações.
 
 No modo real, **Salvar** usa `playlist-modify-public`,
 `user-library-modify` e `user-read-private`. Antes da criação, persiste um estado

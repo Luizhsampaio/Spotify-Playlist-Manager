@@ -62,8 +62,17 @@
       {% for playlist in artist_collection.playlists %}
       <label class="artist-option" data-artist-option data-artist-name="{{ playlist.name }}">
         <input type="checkbox" name="artists" value="{{ playlist.key }}" {% if playlist.key in selected_artists %}checked{% endif %}>
-        <span><strong>{{ playlist.name }}</strong>
+        <span class="artist-option-details"><strong>{{ playlist.name }}</strong>
           <small>{{ playlist.tracks | length }} {{ "música" if playlist.tracks | length == 1 else "músicas" }}{% if not playlist.artist_id %} · Sem ID: agrupado por nome{% endif %}</small></span>
+        <small class="artist-playlist-id">
+          {% if playlist.key in managed_playlist_ids %}
+          Playlist ID: <span>{{ managed_playlist_ids[playlist.key] }}</span>
+          {% elif demo %}
+          Sem vínculo com Spotify no modo demonstração
+          {% else %}
+          Sem playlist vinculada
+          {% endif %}
+        </small>
       </label>
       {% endfor %}
     </fieldset>

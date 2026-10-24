@@ -4,7 +4,11 @@ from typing import Literal
 
 import pytest
 
-from music_curator.managed_registry import ManagedPlaylistRecord, ManagedPlaylistRegistry
+from music_curator.managed_registry import (
+    ManagedPlaylistRecord,
+    ManagedPlaylistRegistry,
+    default_registry_path,
+)
 from music_curator.models import AppError
 
 KEY = "a" * 64
@@ -41,6 +45,19 @@ def test_registry_persists_records_by_account_and_artist(tmp_path: Path) -> None
     content = path.read_text(encoding="utf-8")
     assert "synthetic-refresh" not in content
     assert "token" not in content.lower()
+
+
+def test_default_registry_path_is_independent_of_process_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    expected = (
+        Path(__file__).resolve().parents[1] / ".local-data" / "spotify" / ("managed-playlists.json")
+    )
+    original = default_registry_path()
+    monkeypatch.chdir(tmp_path)
+
+    assert original == expected
+    assert default_registry_path() == original
 
 
 def test_registry_preserves_pending_creation_without_an_id(tmp_path: Path) -> None:

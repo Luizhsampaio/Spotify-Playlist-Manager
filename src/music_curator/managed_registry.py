@@ -8,6 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from music_curator.models import AppError
 
 
+def default_registry_path() -> Path:
+    project_root = Path(__file__).resolve().parents[2]
+    return project_root / ".local-data" / "spotify" / "managed-playlists.json"
+
+
 class ManagedPlaylistRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

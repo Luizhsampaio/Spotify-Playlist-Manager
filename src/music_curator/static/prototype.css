@@ -139,6 +139,8 @@ a.track-title:hover { text-decoration: underline; }
 .artist-option input { width: 17px; height: 17px; flex-shrink: 0; accent-color: var(--green); }
 .artist-option strong { font-size: 12px; }
 .artist-option small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+.artist-option-details { min-width: 0; flex: 1 1 auto; }
+.artist-option .artist-playlist-id { flex: 0 1 190px; margin: 0 0 0 auto; color: var(--ink); font-size: 11px; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
 .artist-no-results { color: var(--muted); font-size: 12px; padding: 12px; }
 .playlist-dialog-footer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 14px; margin-top: 22px; }
 .playlist-dialog-footer > div { display: flex; flex-wrap: wrap; gap: 8px; }

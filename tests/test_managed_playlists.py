@@ -448,6 +448,7 @@ def test_configuration_has_no_global_toggle_and_saves_empty_selection(
     )
     assert response.status_code == 200
     assert selected_keys(response.text) == set()
+    assert "Sem vínculo com Spotify no modo demonstração" in response.text
 
 
 def test_unexpected_global_toggle_field_does_not_replace_saved_selection(
@@ -477,6 +478,7 @@ def test_active_save_creates_and_exactly_syncs_selected_playlists(tmp_path: Path
     keys = [group.key for group in selected]
     with browser:
         page = browser.get(PAGE)
+        assert "Sem playlist vinculada" in page.text
         result = post_preview(browser, keys, page.text)
         assert result.status_code == 200
         assert "Todas as faixas foram confirmadas no Spotify." in result.text
@@ -492,6 +494,17 @@ def test_active_save_creates_and_exactly_syncs_selected_playlists(tmp_path: Path
             assert record.playlist_id is not None
             expected_ids = [track.id for track in group.tracks]
             assert playlists[record.playlist_id]["items"] == expected_ids
+            row_pattern = (
+                rf'<label class="artist-option"[^>]*data-artist-name="'
+                rf'{re.escape(group.name)}".*?</label>'
+            )
+            artist_row = re.search(
+                row_pattern,
+                browser.get(PAGE).text,
+                re.DOTALL,
+            )
+            assert artist_row
+            assert f"Playlist ID: <span>{record.playlist_id}</span>" in artist_row[0]
 
         first_record = records[selected[0].key]
         assert first_record.playlist_id is not None

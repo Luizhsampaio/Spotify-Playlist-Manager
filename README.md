@@ -118,7 +118,8 @@ Clique em **Por artista** para abrir uma janela de configuração:
 
 1. Pesquise os artistas encontrados na coleção importada de Músicas Curtidas.
    A seleção já salva para a conta é marcada ao abrir; uma configuração nova
-   começa sem artistas selecionados.
+   começa sem artistas selecionados. O ID da playlist vinculada aparece ao lado
+   do artista; quando ainda não existe vínculo, isso também é indicado.
 2. Selecione um ou mais artistas. **Selecionar todos** inclui todos os artistas,
    inclusive os ocultos pela pesquisa; **Limpar seleção** desmarca todos.
 3. Clique em **Salvar**. No modo demo, isso guarda apenas a seleção nesta sessão.
@@ -146,6 +147,8 @@ da sessão. Atualizar a coleção não descarta a seleção; dados antigos envia
 outra aba são recusados. O registro local
 `.local-data/spotify/managed-playlists.json` guarda seleção, IDs e estados por
 conta/artista, sem conteúdo de músicas, e permanece ao desconectar.
+O caminho é ancorado na raiz do projeto, não no diretório de onde o processo foi
+iniciado, para que reiniciar a aplicação não crie outro registro por engano.
 O modo demo oferece somente a configuração local com músicas e artistas fictícios;
 ele nunca chama endpoints Spotify de escrita.
 
