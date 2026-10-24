@@ -13,7 +13,6 @@ if (artistDialog) {
     artistDialog.querySelector("[data-artist-selection-count]").textContent =
       `${count} ${count === 1 ? "artista selecionado" : "artistas selecionados"}`;
     settingsFields.disabled = !enabledToggle.checked;
-    artistDialog.querySelector("[data-artist-save-submit]").disabled = enabledToggle.checked && count === 0;
   }
 
   function searchArtists() {
@@ -61,6 +60,11 @@ if (artistDialog) {
   });
   artistForm.addEventListener("change", updateSelection);
   enabledToggle.addEventListener("change", updateSelection);
+  artistForm.addEventListener("submit", () => {
+    const submit = artistDialog.querySelector("[data-artist-save-submit]");
+    submit.disabled = true;
+    submit.textContent = "Salvando...";
+  });
   updateSelection();
   if (artistDialog.hasAttribute("data-open-on-load")) artistDialog.showModal();
 }

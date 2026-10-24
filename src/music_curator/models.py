@@ -2,7 +2,15 @@ import re
 from datetime import date, datetime
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 
 class AppError(Exception):
@@ -10,6 +18,10 @@ class AppError(Exception):
 
 
 class ReconnectRequired(AppError):
+    pass
+
+
+class MutationOutcomeUnknown(AppError):
     pass
 
 
@@ -32,6 +44,76 @@ class Playlist(BaseModel):
     @property
     def url(self) -> str:
         return f"https://open.spotify.com/playlist/{self.id}"
+
+
+class PlaylistOwner(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(pattern=r"^[A-Za-z0-9]+$", min_length=1, max_length=128)
+
+
+class ManagedPlaylistDetails(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(pattern=r"^[A-Za-z0-9]+$", min_length=1, max_length=128)
+    name: str
+    public: bool | None
+    collaborative: bool
+    owner: PlaylistOwner
+
+
+class PlaylistItemIdentity(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]+$", min_length=1, max_length=128)
+
+
+class PlaylistItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    item: PlaylistItemIdentity | None = None
+    track: PlaylistItemIdentity | None = None
+
+    @property
+    def item_id(self) -> str | None:
+        value = self.item or self.track
+        return value.id if value is not None else None
+
+
+class PlaylistItemsPage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    items: list[PlaylistItem]
+    next: str | None = None
+
+
+class CurrentUser(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    account_id: str = Field(
+        validation_alias=AliasChoices("id", "account_id"),
+        pattern=r"^[A-Za-z0-9]+$",
+        min_length=1,
+        max_length=128,
+    )
+
+
+class PlaylistMutationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artist_key: str = Field(pattern=r"^[a-f0-9]{64}$")
+    artist_name: str
+    status: Literal["completed", "partial", "failed"]
+    playlist_id: str | None = Field(
+        default=None, pattern=r"^[A-Za-z0-9]+$", min_length=1, max_length=128
+    )
+    message: str
+
+    @property
+    def playlist_url(self) -> str | None:
+        if self.playlist_id is None:
+            return None
+        return f"https://open.spotify.com/playlist/{self.playlist_id}"
 
 
 class Artist(BaseModel):

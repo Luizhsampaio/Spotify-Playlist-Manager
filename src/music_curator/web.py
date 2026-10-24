@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 from urllib.parse import parse_qs
 
 import httpx
@@ -18,8 +19,16 @@ from music_curator.config import ORIGIN, Settings
 from music_curator.credentials import CredentialStore, WindowsCredentialStore
 from music_curator.demo import PROTOTYPE_TRACKS
 from music_curator.library import SongFilters, song_collection
-from music_curator.models import AppError, Playlist, ReconnectRequired, SavedTrack
-from music_curator.playlist_preview import artist_playlists
+from music_curator.managed_registry import ManagedPlaylistRecord, ManagedPlaylistRegistry
+from music_curator.models import (
+    AppError,
+    MutationOutcomeUnknown,
+    Playlist,
+    PlaylistMutationResult,
+    ReconnectRequired,
+    SavedTrack,
+)
+from music_curator.playlist_preview import ArtistPlaylist, artist_playlists
 from music_curator.spotify import SpotifyClient
 
 BASE = Path(__file__).parent
@@ -53,6 +62,328 @@ class BrowserSession:
     tracks_revision: str = field(default_factory=lambda: secrets.token_urlsafe(24))
     selected_artists: set[str] = field(default_factory=set)
     artist_settings_enabled: bool = False
+    playlist_results: list[PlaylistMutationResult] = field(default_factory=list)
+
+
+def _record_with_state(
+    record: ManagedPlaylistRecord,
+    state: str,
+    *,
+    playlist_id: str | None = None,
+    owner_id: str | None = None,
+) -> ManagedPlaylistRecord:
+    values = record.model_dump()
+    values["state"] = state
+    if playlist_id is not None:
+        values["playlist_id"] = playlist_id
+    if owner_id is not None:
+        values["owner_id"] = owner_id
+    return ManagedPlaylistRecord.model_validate(values)
+
+
+def _playlist_result(
+    group_key: str,
+    name: str,
+    status: Literal["completed", "partial", "failed"],
+    message: str,
+    playlist_id: str | None = None,
+) -> PlaylistMutationResult:
+    return PlaylistMutationResult(
+        artist_key=group_key,
+        artist_name=name,
+        status=status,
+        message=message,
+        playlist_id=playlist_id,
+    )
+
+
+async def _manage_selected_artist(
+    client: SpotifyClient,
+    registry: ManagedPlaylistRegistry,
+    account_id: str,
+    artist_key: str,
+    group: ArtistPlaylist,
+    record: ManagedPlaylistRecord | None,
+) -> PlaylistMutationResult:
+    if record is None:
+        record = ManagedPlaylistRecord(
+            artist_key=group.key,
+            artist_id=group.artist_id,
+            artist_name=group.name,
+            state="pending_create",
+        )
+        registry.save_record(account_id, record)
+        try:
+            created = await client.create_public_playlist(group.name)
+        except MutationOutcomeUnknown:
+            uncertain = _record_with_state(record, "creation_uncertain")
+            registry.save_record(account_id, uncertain)
+            return _playlist_result(
+                artist_key,
+                group.name,
+                "partial",
+                "A criacao pode ter ocorrido, mas o Spotify nao confirmou o ID. "
+                "Confira sua conta antes de tentar novamente.",
+            )
+        except AppError as exc:
+            registry.delete_record(account_id, group.key)
+            return _playlist_result(artist_key, group.name, "failed", str(exc))
+        record = _record_with_state(
+            record,
+            "created",
+            playlist_id=created.id,
+            owner_id=created.owner.id,
+        )
+        try:
+            registry.save_record(account_id, record)
+        except AppError as exc:
+            return _playlist_result(
+                artist_key,
+                group.name,
+                "partial",
+                f"A playlist foi criada, mas o ID nao pode ser confirmado no registro local. {exc}",
+                created.id,
+            )
+    elif record.state in {"pending_create", "creation_uncertain"}:
+        return _playlist_result(
+            artist_key,
+            group.name,
+            "partial",
+            "A criacao anterior tem resultado incerto. Verifique o Spotify antes de "
+            "resolver o registro local.",
+            record.playlist_id,
+        )
+    elif record.state == "uncertain":
+        return _playlist_result(
+            artist_key,
+            group.name,
+            "partial",
+            "A ultima alteracao da biblioteca tem resultado incerto. "
+            "Verifique a conta Spotify antes de continuar.",
+            record.playlist_id,
+        )
+    elif record.artist_id != group.artist_id:
+        return _playlist_result(
+            artist_key,
+            group.name,
+            "failed",
+            "A identidade do artista nao corresponde ao registro. Nenhuma alteracao foi feita.",
+            record.playlist_id,
+        )
+
+    playlist_id = record.playlist_id
+    if playlist_id is None or record.owner_id is None:
+        return _playlist_result(
+            artist_key, group.name, "partial", "O registro nao contem um ID verificavel."
+        )
+    try:
+        details = await client.get_managed_playlist(playlist_id)
+    except AppError as exc:
+        return _playlist_result(
+            artist_key,
+            group.name,
+            "partial" if record.state == "created" else "failed",
+            str(exc),
+            playlist_id,
+        )
+    if details.owner.id != record.owner_id or details.public is not True or details.collaborative:
+        return _playlist_result(
+            artist_key,
+            group.name,
+            "failed",
+            "A playlist nao corresponde ao destino publico registrado. "
+            "Nenhuma alteracao foi feita.",
+            playlist_id,
+        )
+    if details.name != group.name:
+        try:
+            await client.rename_public_playlist(playlist_id, group.name)
+        except AppError as exc:
+            try:
+                details = await client.get_managed_playlist(playlist_id)
+            except AppError:
+                return _playlist_result(
+                    artist_key,
+                    group.name,
+                    "partial",
+                    f"Nao foi possivel confirmar a atualizacao do nome. {exc}",
+                    playlist_id,
+                )
+            if details.name != group.name:
+                return _playlist_result(
+                    artist_key,
+                    group.name,
+                    "partial",
+                    f"O Spotify nao confirmou o nome esperado. {exc}",
+                    playlist_id,
+                )
+    if record.state == "removed":
+        uncertain = _record_with_state(record, "uncertain")
+        registry.save_record(account_id, uncertain)
+        try:
+            await client.save_playlist_to_library(playlist_id)
+        except MutationOutcomeUnknown:
+            return _playlist_result(
+                artist_key,
+                group.name,
+                "partial",
+                "O Spotify nao confirmou se a playlist voltou para Sua Biblioteca. "
+                "Verifique antes de tentar novamente.",
+                playlist_id,
+            )
+        except AppError as exc:
+            try:
+                registry.save_record(account_id, record)
+            except AppError as registry_error:
+                return _playlist_result(
+                    artist_key,
+                    group.name,
+                    "partial",
+                    f"{exc} O estado local tambem nao pode ser restaurado: {registry_error}",
+                    playlist_id,
+                )
+            return _playlist_result(artist_key, group.name, "failed", str(exc), playlist_id)
+        record = _record_with_state(record, "created")
+        try:
+            registry.save_record(account_id, record)
+        except AppError as exc:
+            return _playlist_result(
+                artist_key,
+                group.name,
+                "partial",
+                "A playlist voltou a biblioteca, mas o estado local nao pode ser confirmado. "
+                f"{exc}",
+                playlist_id,
+            )
+
+    expected_ids = [track.id for track in group.tracks]
+    if any(track_id is None for track_id in expected_ids):
+        raise AppError("Uma faixa selecionada nao possui ID Spotify valido.")
+    expected_uris = [f"spotify:track:{track_id}" for track_id in expected_ids]
+    try:
+        current_ids = await client.playlist_item_ids(playlist_id)
+    except AppError as exc:
+        return _playlist_result(
+            artist_key,
+            group.name,
+            "partial" if record.state == "created" else "failed",
+            str(exc),
+            playlist_id,
+        )
+    write_error: AppError | None = None
+    if current_ids != [track_id for track_id in expected_ids if track_id is not None]:
+        try:
+            await client.replace_playlist_items(playlist_id, expected_uris[:100])
+            for start in range(100, len(expected_uris), 100):
+                await client.add_playlist_items(playlist_id, expected_uris[start : start + 100])
+        except AppError as exc:
+            write_error = exc
+
+    try:
+        confirmed_ids = await client.playlist_item_ids(playlist_id)
+    except AppError:
+        message = (
+            "Nao foi possivel verificar o conteudo final da playlist. Nenhum sucesso foi anunciado."
+        )
+        if write_error is not None:
+            message = f"{message} {write_error}"
+        return _playlist_result(artist_key, group.name, "partial", message, playlist_id)
+    if confirmed_ids != [track_id for track_id in expected_ids if track_id is not None]:
+        message = "A leitura do Spotify nao confirmou todas as faixas esperadas."
+        if write_error is not None:
+            message = f"{message} {write_error}"
+        try:
+            registry.save_record(account_id, _record_with_state(record, "active"))
+        except AppError as exc:
+            return _playlist_result(
+                artist_key,
+                group.name,
+                "partial",
+                f"As faixas foram confirmadas, mas o estado local nao pode ser atualizado. {exc}",
+                playlist_id,
+            )
+        return _playlist_result(artist_key, group.name, "partial", message, playlist_id)
+    registry.save_record(account_id, _record_with_state(record, "active"))
+    return _playlist_result(
+        artist_key,
+        group.name,
+        "completed",
+        "Todas as faixas foram confirmadas no Spotify.",
+        playlist_id,
+    )
+
+
+async def _remove_deselected_artist(
+    client: SpotifyClient,
+    registry: ManagedPlaylistRegistry,
+    account_id: str,
+    record: ManagedPlaylistRecord,
+) -> PlaylistMutationResult | None:
+    if record.state == "removed":
+        return None
+    if record.state in {"pending_create", "creation_uncertain", "uncertain"}:
+        return _playlist_result(
+            record.artist_key,
+            record.artist_name,
+            "partial",
+            "A playlist tem uma operacao pendente ou incerta. "
+            "Verifique o Spotify antes de tentar novamente.",
+            record.playlist_id,
+        )
+    playlist_id = record.playlist_id
+    if playlist_id is None or record.owner_id is None:
+        return _playlist_result(
+            record.artist_key,
+            record.artist_name,
+            "partial",
+            "O registro nao contem um ID verificavel.",
+        )
+    details = await client.get_managed_playlist(playlist_id)
+    if details.owner.id != record.owner_id or details.public is not True or details.collaborative:
+        return _playlist_result(
+            record.artist_key,
+            record.artist_name,
+            "failed",
+            "A playlist nao corresponde ao destino publico registrado. "
+            "Nenhuma alteracao foi feita.",
+            playlist_id,
+        )
+    pending = _record_with_state(record, "uncertain")
+    registry.save_record(account_id, pending)
+    try:
+        await client.remove_playlist_from_library(playlist_id)
+    except MutationOutcomeUnknown:
+        return _playlist_result(
+            record.artist_key,
+            record.artist_name,
+            "partial",
+            "O Spotify nao confirmou a remocao da biblioteca. "
+            "Verifique sua conta antes de tentar novamente.",
+            playlist_id,
+        )
+    except AppError as exc:
+        registry.save_record(account_id, record)
+        return _playlist_result(
+            record.artist_key, record.artist_name, "failed", str(exc), playlist_id
+        )
+    removed = _record_with_state(record, "removed")
+    try:
+        registry.save_record(account_id, removed)
+    except AppError as exc:
+        return _playlist_result(
+            record.artist_key,
+            record.artist_name,
+            "partial",
+            f"A playlist saiu da biblioteca, mas o estado local nao pode ser confirmado. {exc}",
+            playlist_id,
+        )
+    return _playlist_result(
+        record.artist_key,
+        record.artist_name,
+        "completed",
+        "Playlist removida de Sua Biblioteca. Ela pode continuar publica e acessivel por link.",
+        playlist_id,
+    )
 
 
 def create_app(
@@ -61,6 +392,7 @@ def create_app(
     store: CredentialStore | None = None,
     http: httpx.AsyncClient | None = None,
     demo: bool = False,
+    registry_path: Path | None = None,
 ) -> FastAPI:
     transport = http or httpx.AsyncClient(timeout=15, follow_redirects=False, trust_env=False)
     client = SpotifyClient(
@@ -68,8 +400,14 @@ def create_app(
         store if store is not None else WindowsCredentialStore(settings.client_id),
         transport,
     )
+    registry = ManagedPlaylistRegistry(
+        registry_path
+        if registry_path is not None
+        else Path.cwd() / ".local-data" / "spotify" / "managed-playlists.json"
+    )
     sessions: dict[str, BrowserSession] = {}
     connection_version = 0
+    playlist_operation_lock = asyncio.Lock()
     templates = Jinja2Templates(directory=BASE / "templates")
 
     @asynccontextmanager
@@ -297,6 +635,7 @@ def create_app(
                     "artist_settings_enabled": signed_in and session.artist_settings_enabled,
                     "tracks_revision": session.tracks_revision,
                     "open_artist_dialog": open_artist_dialog,
+                    "playlist_results": session.playlist_results,
                 },
                 status_code=status_code,
             )
@@ -361,14 +700,82 @@ def create_app(
                 selected = fields.get("artists", [])
                 enabled = fields.get("enabled") == ["true"]
                 available = {group.key for group in artist_playlists(session.tracks).playlists}
-                if enabled and not selected:
-                    message = "Selecione pelo menos um artista para salvar a configuracao."
-                elif len(selected) != len(set(selected)) or not set(selected).issubset(available):
+                if len(selected) != len(set(selected)) or not set(selected).issubset(available):
                     message = "Selecao de artistas invalida. Reabra a configuracao."
                 else:
                     if enabled:
-                        session.selected_artists = set(selected)
-                    session.artist_settings_enabled = enabled
+                        groups = artist_playlists(session.tracks).playlists
+                        selected_keys = set(selected)
+                        if demo:
+                            session.selected_artists = selected_keys
+                            session.playlist_results = []
+                        else:
+                            try:
+                                async with playlist_operation_lock:
+                                    account_id = await client.current_account_id()
+                                    records = registry.records_for(account_id)
+                                    selected_groups = [
+                                        group for group in groups if group.key in selected_keys
+                                    ]
+                                    results: list[PlaylistMutationResult] = []
+                                    for group in selected_groups:
+                                        try:
+                                            results.append(
+                                                await _manage_selected_artist(
+                                                    client,
+                                                    registry,
+                                                    account_id,
+                                                    group.key,
+                                                    group,
+                                                    records.get(group.key),
+                                                )
+                                            )
+                                        except AppError as exc:
+                                            record = records.get(group.key)
+                                            results.append(
+                                                _playlist_result(
+                                                    group.key,
+                                                    group.name,
+                                                    "partial"
+                                                    if isinstance(exc, MutationOutcomeUnknown)
+                                                    else "failed",
+                                                    str(exc),
+                                                    record.playlist_id if record else None,
+                                                )
+                                            )
+                                    for artist_key, record in records.items():
+                                        if artist_key in selected_keys:
+                                            continue
+                                        try:
+                                            result = await _remove_deselected_artist(
+                                                client, registry, account_id, record
+                                            )
+                                        except AppError as exc:
+                                            result = _playlist_result(
+                                                artist_key,
+                                                record.artist_name,
+                                                "partial"
+                                                if isinstance(exc, MutationOutcomeUnknown)
+                                                else "failed",
+                                                str(exc),
+                                                record.playlist_id,
+                                            )
+                                        if result is not None:
+                                            results.append(result)
+                                    session.selected_artists = selected_keys
+                                    session.playlist_results = results
+                                    if not results:
+                                        session.message = (
+                                            "Nao havia playlists gerenciadas para alterar."
+                                        )
+                                        session.message_error = False
+                            except AppError as exc:
+                                message = str(exc)
+                                status = 502
+                    else:
+                        session.playlist_results = []
+                    if message is None:
+                        session.artist_settings_enabled = enabled
         if message:
             return await product_page(
                 request,

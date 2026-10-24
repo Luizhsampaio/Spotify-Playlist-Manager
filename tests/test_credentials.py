@@ -39,15 +39,18 @@ def vault(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, str]]:
 def test_secure_storage_lifecycle(vault: dict[str, str]) -> None:
     store = WindowsCredentialStore("synthetic-client")
     assert store.load() is None
+    assert store.load_scopes() is None
     store.save("synthetic-refresh")
+    store.save_scopes({"playlist-read-private", "playlist-modify-public"})
     assert store.load() == "synthetic-refresh"
+    assert store.load_scopes() == {"playlist-read-private", "playlist-modify-public"}
     assert WindowsCredentialStore("different-synthetic-client").load() is None
     store.delete()
     store.delete()
     assert vault == {}
 
 
-@pytest.mark.parametrize("operation", ["load", "save", "delete"])
+@pytest.mark.parametrize("operation", ["load", "save", "load_scopes", "save_scopes", "delete"])
 def test_no_plaintext_backend(monkeypatch: pytest.MonkeyPatch, operation: str) -> None:
     monkeypatch.setattr(keyring, "get_keyring", lambda: object())
     store = WindowsCredentialStore("synthetic-client")
@@ -56,11 +59,15 @@ def test_no_plaintext_backend(monkeypatch: pytest.MonkeyPatch, operation: str) -
             store.save("synthetic-refresh")
         elif operation == "load":
             store.load()
+        elif operation == "load_scopes":
+            store.load_scopes()
+        elif operation == "save_scopes":
+            store.save_scopes({"playlist-modify-public"})
         else:
             store.delete()
 
 
-@pytest.mark.parametrize("operation", ["load", "save", "delete"])
+@pytest.mark.parametrize("operation", ["load", "save", "load_scopes", "save_scopes", "delete"])
 @pytest.mark.parametrize("error_type", [KeyringError, windows_types.error])
 def test_vault_errors_are_explicit(
     vault: dict[str, str],
@@ -72,9 +79,13 @@ def test_vault_errors_are_explicit(
         raise error_type("synthetic-private-details")
 
     store = WindowsCredentialStore("synthetic-client")
-    method = {"load": "get_password", "save": "set_password", "delete": "delete_password"}[
-        operation
-    ]
+    method = {
+        "load": "get_password",
+        "save": "set_password",
+        "load_scopes": "get_password",
+        "save_scopes": "set_password",
+        "delete": "delete_password",
+    }[operation]
     monkeypatch.setattr(keyring, method, unavailable)
     vault["synthetic-client"] = "synthetic-refresh"
     with pytest.raises(AppError) as error:
@@ -82,6 +93,10 @@ def test_vault_errors_are_explicit(
             store.save("synthetic-refresh")
         elif operation == "load":
             store.load()
+        elif operation == "load_scopes":
+            store.load_scopes()
+        elif operation == "save_scopes":
+            store.save_scopes({"playlist-modify-public"})
         else:
             store.delete()
     assert "synthetic-private-details" not in str(error.value)

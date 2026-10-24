@@ -16,12 +16,15 @@ if sys.platform == "win32":
 class CredentialStore(Protocol):
     def load(self) -> str | None: ...
     def save(self, refresh_token: str) -> None: ...
+    def load_scopes(self) -> set[str] | None: ...
+    def save_scopes(self, scopes: set[str]) -> None: ...
     def delete(self) -> None: ...
 
 
 class WindowsCredentialStore:
     def __init__(self, client_id: str) -> None:
         self.username = client_id
+        self.scopes_username = f"{client_id}:granted-scopes"
         self.service = "music-curator.spotify"
 
     def _check_backend(self) -> None:
@@ -54,11 +57,38 @@ class WindowsCredentialStore:
                 "Nao foi possivel salvar a conexao no Windows. Tente novamente."
             ) from exc
 
+    def load_scopes(self) -> set[str] | None:
+        self._check_backend()
+        try:
+            scopes = keyring.get_password(self.service, self.scopes_username)
+        except VAULT_ERRORS as exc:
+            raise AppError("Nao foi possivel verificar as permissoes salvas no Windows.") from exc
+        if scopes is None:
+            return None
+        values = scopes.split()
+        if not values or any(
+            not scope.isascii() or not scope.replace("-", "").isalnum() for scope in values
+        ):
+            raise AppError("As permissoes salvas estao invalidas. Conecte sua conta novamente.")
+        return set(values)
+
+    def save_scopes(self, scopes: set[str]) -> None:
+        self._check_backend()
+        if not scopes or any(
+            not scope.isascii() or not scope.replace("-", "").isalnum() for scope in scopes
+        ):
+            raise AppError("Nao foi possivel salvar as permissoes autorizadas.")
+        try:
+            keyring.set_password(self.service, self.scopes_username, " ".join(sorted(scopes)))
+        except VAULT_ERRORS as exc:
+            raise AppError("Nao foi possivel salvar as permissoes autorizadas no Windows.") from exc
+
     def delete(self) -> None:
         self._check_backend()
         try:
-            if keyring.get_password(self.service, self.username) is not None:
-                keyring.delete_password(self.service, self.username)
+            for username in (self.username, self.scopes_username):
+                if keyring.get_password(self.service, username) is not None:
+                    keyring.delete_password(self.service, username)
         except VAULT_ERRORS as exc:
             raise AppError(
                 "Nao foi possivel apagar a credencial no Windows. A desconexao nao foi concluida."

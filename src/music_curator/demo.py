@@ -54,6 +54,7 @@ class DemoCredentialStore:
 
     def __init__(self) -> None:
         self.token: str | None = None
+        self.scopes: set[str] | None = None
 
     def load(self) -> str | None:
         return self.token
@@ -61,8 +62,15 @@ class DemoCredentialStore:
     def save(self, refresh_token: str) -> None:
         self.token = refresh_token
 
+    def load_scopes(self) -> set[str] | None:
+        return set(self.scopes) if self.scopes is not None else None
+
+    def save_scopes(self, scopes: set[str]) -> None:
+        self.scopes = set(scopes)
+
     def delete(self) -> None:
         self.token = None
+        self.scopes = None
 
 
 def demo_response(request: httpx.Request) -> httpx.Response:

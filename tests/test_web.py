@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from music_curator.config import ORIGIN, Settings
 from music_curator.demo import DemoCredentialStore, demo_response
 from music_curator.models import AppError
+from music_curator.spotify import AUTH_SCOPES
 from music_curator.web import create_app
 
 HEADERS = {"Origin": ORIGIN}
@@ -231,7 +232,8 @@ def test_real_mode_uses_official_oauth_url(store: DemoCredentialStore) -> None:
             "/connect", data={"csrf": csrf(client)}, headers=HEADERS, follow_redirects=False
         )
         assert response.headers["location"].startswith("https://accounts.spotify.com/authorize?")
-        assert "playlist-modify" not in response.headers["location"]
+        params = parse_qs(urlsplit(response.headers["location"]).query)
+        assert params["scope"] == [AUTH_SCOPES]
 
 
 @pytest.mark.parametrize("empty", [False, True])

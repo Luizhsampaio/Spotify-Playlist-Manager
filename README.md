@@ -37,8 +37,10 @@ Abra **http://127.0.0.1:8765** no navegador:
 
 1. Na Landing Page, clique em **Entrar** ou **Entrar com Spotify**.
 2. Na tela de entrada, clique em **Continuar com Spotify**.
-3. Confira a autorização no site oficial. As permissões `playlist-read-private`
-   e `user-library-read` permitem apenas leitura.
+3. Confira as permissões no site oficial. Além das permissões de leitura
+   `playlist-read-private` e `user-library-read`, a sincronização ativa solicita
+   `playlist-modify-public`, `user-library-modify` e `user-read-private` para
+   validar a conta proprietária do registro local.
 4. Após autorizar, o aplicativo carrega automaticamente suas Músicas Curtidas
    antes de abrir o painel, consultando todas as páginas da coleção acessível.
 5. No **Meu espaço**, clique em **Minhas Músicas** no menu lateral: a lista
@@ -120,13 +122,17 @@ Clique em **Por artista** para abrir uma janela de configuração:
    esmaecidos e bloqueados.
 2. Selecione um ou mais artistas. **Selecionar todos** inclui todos os artistas,
    inclusive os ocultos pela pesquisa; **Limpar seleção** desmarca todos.
-3. Clique em **Salvar** para guardar a seleção na sessão atual.
+3. Clique em **Salvar**. No modo demo, isso guarda apenas a seleção nesta sessão.
+   No modo real, com **Ativado**, o envio cria ou sincroniza as playlists públicas
+   selecionadas. A sincronização substitui o conteúdo para refletir exatamente as
+   músicas elegíveis das Músicas Curtidas; faixas manuais ou removidas da coleção
+   também saem da playlist.
 4. Clique novamente no cartão **Por artista** para reabrir e editar a configuração.
    Cancelar ou fechar a janela descarta apenas as alterações ainda não salvas.
    O estado Ativado/Desativado também é salvo por **Salvar**, apenas na sessão.
-   Desativar mantém os artistas já salvos para reativação; pode ser salvo sem
-   selecionar artistas. Ativar exige pelo menos um artista. Este controle habilita
-   a configuração, mas não inicia execução ou escrita no Spotify.
+   Desativar não faz mutações Spotify e mantém os artistas selecionados na sessão.
+   Ativado com seleção vazia remove as playlists gerenciadas de **Sua Biblioteca**;
+   isso não as exclui e elas podem continuar públicas ou acessíveis por link.
 
 As colaborações entram no agrupamento de cada artista participante selecionado.
 Uma mesma faixa não se repete dentro da playlist do artista. Artistas com IDs
@@ -134,27 +140,33 @@ distintos não são mesclados mesmo que tenham o mesmo nome; sem ID, a configura
 informa que o agrupamento foi feito por nome. Itens sem identificação de faixa
 ou artista utilizável são desconsiderados com aviso.
 
-Os filtros de Minhas Músicas não limitam esta configuração: ela usa a coleção completa
+Os filtros de Minhas Músicas não limitam a sincronização: ela usa a coleção completa
 da sessão. Atualizar a coleção, desconectar ou reautorizar descarta a seleção
-configurada; dados antigos enviados por outra aba são recusados. Não há seção de
-prévia fora do cartão nem persistência da seleção após encerrar a sessão.
+configurada; dados antigos enviados por outra aba são recusados. O registro local
+`.local-data/spotify/managed-playlists.json` guarda IDs e estados por conta/artista,
+sem conteúdo de músicas, e permanece ao desconectar.
+O modo demo oferece somente a configuração local com músicas e artistas fictícios;
+ele nunca chama endpoints Spotify de escrita.
 
-**Esta etapa não cria playlists no Spotify.** Não solicita escopos de escrita,
-não sincroniza playlists nem executa automações. A criação real fica para uma
-entrega futura com proposta, aprovação humana e validação determinística.
-O modo demo oferece o mesmo fluxo somente com músicas e artistas fictícios.
+Falhas parciais são mostradas por artista com ID/link quando disponível. Um timeout
+durante a criação bloqueia uma nova criação automática até resolução manual; o app
+não repete mutações incertas. A conclusão só é exibida após leitura de volta e
+comparação das faixas.
 
 ## Limites desta entrega
 
-- O painel não consulta nem lista playlists nesta etapa. A capacidade de leitura
-  preexistente permanece coberta por testes, sem botão ou link na nova interface.
+- O painel não navega nem lista todas as playlists da conta. Só consulta os detalhes
+  e itens dos IDs registrados localmente para verificar propriedade e sincronização.
 - Lê Músicas Curtidas automaticamente ao entrar no painel, uma vez por sessão,
   e novamente ao clicar em **Atualizar músicas**. Não lê o conteúdo de outras
-  playlists, perfil ou email. Não há sincronização contínua.
+  playlists nem consulta email ou nome de perfil; a sincronização consulta somente
+  o ID imutável da conta. Não há sincronização contínua.
 - Navegação, pesquisa e filtros reutilizam a coleção carregada. Uma coleção vazia
   também conta como carga concluída. Falhas não são repetidas a cada navegação:
   use **Atualizar músicas** ou **Reconectar Spotify**, conforme a mensagem.
-- Não cria, renomeia, adiciona nem remove conteúdo.
+- A configuração por artista pode criar/renomear playlists públicas e substituir
+  suas faixas; ao desmarcar, remove a playlist apenas de **Sua Biblioteca**, sem
+  exclusão permanente. Não há sincronização contínua.
 - Não classifica gêneros nem envia conteúdo Spotify a uma IA.
 - As capas usam os endereços já recebidos na importação, sem novas permissões.
   No modo real, o navegador baixa as miniaturas diretamente do CDN oficial

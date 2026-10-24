@@ -23,20 +23,23 @@ Recusar backends alternativos/inseguros em vez de fazer fallback para texto.
 **Consequência:** a execução real desta entrega é suportada no Windows. A
 demonstração visual é isolada e não acessa transporte HTTP ou credenciais.
 Os testes da integração real usam transporte HTTP simulado e credenciais fictícias.
-O modelo de estado em arquivos do produto será desenvolvido somente com o catálogo.
+O único JSON operacional guarda metadados mínimos das playlists gerenciadas, não
+catálogo ou conteúdo da biblioteca.
 
 ## ADR 0003 — Somente leitura e controle humano
 
 **Decisão:** solicitar somente `playlist-read-private` e usar exclusivamente
 `GET /me/playlists`, além dos endpoints oficiais de OAuth.
 
-**Consequência:** não há escrita remota nem necessidade de criar agora modelos de
-proposta/aprovação. Futuras mutações exigem uma nova entrega com aprovação explícita.
+**Histórico:** essa foi a decisão da versão inicial, sem escrita remota. A extensão
+da POC #17 abaixo acrescenta mutações exclusivamente ao envio manual da configuração
+ativa por artista; não habilita execução em segundo plano.
 
 **Extensão — Minhas Músicas:** a autorização também solicita `user-library-read`
 para consultar `GET /me/tracks`, na entrada no painel e na atualização manual.
 `playlist-read-private` é preservado para a capacidade preexistente. Nenhum
-escopo de escrita é solicitado. Conexões antigas podem exigir nova autorização.
+escopo de escrita era solicitado nessa extensão inicial. Conexões antigas podem
+exigir nova autorização.
 
 ## ADR 0004 — Gate Spotify/IA fechado
 
@@ -135,7 +138,8 @@ A lista permanece em memória em `BrowserSession`, isolada por sessão de navega
 sem persistência e sem importação em segundo plano. Sair do demo, desconectar ou
 reiniciar descarta as listas; expirar a sessão impede novo acesso. Reautorizar
 limpa as importações de todas as sessões por se tratar de uma única conexão local.
-Não há armazenamento de catálogo, correções, classificação, IA ou escrita Spotify.
+Não há armazenamento de catálogo, correções, classificação ou IA. A escrita Spotify
+fica restrita à configuração manual descrita na POC #17.
 
 O painel aguarda a primeira carga antes de responder, sem tarefas em segundo plano
 ou JavaScript de importação. Um lock por sessão impede que abas simultâneas dupliquem
@@ -225,8 +229,8 @@ utilizáveis são excluídas com contagem. A ordem das músicas segue a importa�
 
 `POST /app/playlists/por-artista/salvar` exige sessão, origem local, CSRF, revisão
 atual da coleção e artistas pertencentes à lista calculada pelo servidor.
-Não aceita payloads de criação ou nomes arbitrários de playlists. Nenhuma seleção
-é marcada por padrão e nenhum envio aciona escrita. A revisão é rotacionada após
+Não aceita nomes arbitrários de playlists. Nenhuma seleção é marcada por padrão.
+A revisão é rotacionada após
 cada importação completa; o lock de importação serializa a validação da seleção.
 Formulários desatualizados são recusados, sem anunciar sucesso.
 
@@ -235,19 +239,27 @@ seção de prévia externa. **Salvar** fecha o modal após a validação do serv
 cancelar não altera a seleção anterior.
 O interruptor Ativado/Desativado começa desativado e controla um fieldset nativo:
 campos desativados ficam esmaecidos e não aceitam interação ou navegação de teclado.
-Salvar e Cancelar continuam disponíveis. O estado é salvo na sessão junto à
-seleção, sem ligar um executor ou solicitar escopos de escrita. Desativar preserva
-artistas salvos; ativar exige seleção válida. Cancelar restaura ambos ao reabrir.
+Salvar e Cancelar continuam disponíveis. O estado e a seleção permanecem na sessão.
+Desativar não faz mutações e preserva a seleção; ativar com seleção vazia permite
+remover os registros gerenciados de Sua Biblioteca. Cancelar restaura ambos ao reabrir.
 Atualizar a coleção ou reautorizar desativa a configuração junto da seleção.
-A configuração é efêmera na sessão, não um histórico de decisões ou
-aprovação para escrita. Não há correções persistentes nem banco de dados.
+A seleção é efêmera na sessão, não um histórico de decisões. O registro de playlists
+é separado e persistente em `.local-data/spotify/managed-playlists.json`, particionado
+pelo `account_id` retornado por `GET /v1/me`, e não contém faixas da biblioteca.
 Atualizar músicas, reautorizar ou encerrar a sessão invalida a seleção; falhas
 transitórias preservam a última coleção completa. Busca e seleção não chamam
 a API. O demo não acessa transporte externo ou credenciais.
 
-Salvar guarda apenas os artistas selecionados, sem criar playlists. Permanecem somente os
-escopos de leitura atuais e `SPOTIFY_AI_POLICY_MODE=blocked`.
-Criação real, nomenclatura final, privacidade, tratamento de playlists já existentes,
-confirmação humana, prevenção de duplicatas entre execuções, falhas parciais e
-validação de escritas precisam de proposta e aprovação específicas antes de
-qualquer implementação de mutação.
+No modo real, **Salvar** com Ativado usa `playlist-modify-public`,
+`user-library-modify` e `user-read-private`. Antes da criação, persiste um estado
+pendente; após a resposta, registra imediatamente o ID e proprietário. Playlists
+existentes só são alteradas após validar ID, proprietário registrado, visibilidade
+pública e ausência de colaboração. O conteúdo é substituído por URIs elegíveis das
+Músicas Curtidas (primeiro lote de até 100 via PUT, lotes restantes via POST), lido
+de volta e comparado exatamente antes de informar conclusão.
+
+Desmarcar um artista remove a playlist apenas de Sua Biblioteca; não há exclusão
+permanente. Reativar reutiliza o ID persistido. Estados incertos de criação ou
+biblioteca bloqueiam retry automático; falhas e resultados parciais aparecem por
+artista, sem sucesso integral não verificado. Um lock global serializa envios.
+`SPOTIFY_AI_POLICY_MODE=blocked` permanece inalterado.

@@ -131,6 +131,14 @@ a.track-title:hover { text-decoration: underline; }
 .playlist-dialog > p { font-size: 12px; color: var(--muted); }
 .dialog-close { border: 0; background: transparent; color: var(--ink); padding: 0 8px; font-size: 26px; }
 .managed-modal-note { padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: white; }
+.managed-results { margin-top: 24px; }
+.managed-results > ul { display: grid; gap: 10px; padding: 0; list-style: none; }
+.managed-result { padding: 14px 16px; border: 1px solid var(--line); border-radius: 9px; background: white; }
+.managed-result > span { margin-left: 10px; color: var(--muted); font-size: 12px; }
+.managed-result p { margin: 8px 0; font-size: 13px; }
+.managed-result a { overflow-wrap: anywhere; font-size: 12px; }
+.managed-result-partial { border-color: #c7a34a; }
+.managed-result-failed { border-color: #dfb6a9; }
 .artist-search-field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 7px; }
 .artist-search-field input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 7px; min-height: 44px; padding: 10px 12px; background: white; color: var(--ink); }
 .artist-selection-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-block: 14px; font-size: 11px; }

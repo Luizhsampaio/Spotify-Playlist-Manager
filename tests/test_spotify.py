@@ -11,8 +11,14 @@ from pydantic import ValidationError
 
 from music_curator.config import CALLBACK, Settings
 from music_curator.demo import DemoCredentialStore
-from music_curator.models import AppError, ReconnectRequired
-from music_curator.spotify import AUTH_SCOPES, PLAYLISTS_URL, TOKEN_URL, SpotifyClient
+from music_curator.models import AppError, MutationOutcomeUnknown, ReconnectRequired
+from music_curator.spotify import (
+    AUTH_SCOPES,
+    CREATE_PLAYLIST_URL,
+    PLAYLISTS_URL,
+    TOKEN_URL,
+    SpotifyClient,
+)
 
 CLIENT_ID = "0" * 32
 TOKEN = {
@@ -38,7 +44,7 @@ def test_pkce() -> None:
     assert query["code_challenge"] == [challenge.decode()]
     assert query["code_challenge_method"] == ["S256"]
     assert query["scope"] == [AUTH_SCOPES]
-    assert set(query["scope"][0].split()) == {"playlist-read-private", "user-library-read"}
+    assert set(query["scope"][0].split()) == set(AUTH_SCOPES.split())
     assert query["redirect_uri"] == [CALLBACK]
     assert query["state"] == [state]
     assert 43 <= len(verifier) <= 128
@@ -82,12 +88,14 @@ def test_login_and_restart_refresh_rotation(store: DemoCredentialStore) -> None:
             first = SpotifyClient(CLIENT_ID, store, http)
             await first.complete_login("synthetic-code", "synthetic-verifier")
             assert store.token == "synthetic-refresh"
+            assert store.scopes == set(AUTH_SCOPES.split())
             restarted = SpotifyClient(CLIENT_ID, store, http)
             assert restarted.saved_connection()
             assert await restarted.list_playlists() == []
             assert store.token == "synthetic-rotated"
             await restarted.disconnect()
             assert store.token is None
+            assert store.scopes is None
             with pytest.raises(ReconnectRequired):
                 await restarted.list_playlists()
 
@@ -99,9 +107,12 @@ def test_pagination_and_duplicates(store: DemoCredentialStore) -> None:
     urls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) != TOKEN_URL:
+            assert request.headers["authorization"] == f"Bearer {TOKEN['access_token']}"
         urls.append(str(request.url))
         if str(request.url) == TOKEN_URL:
             return httpx.Response(200, json=TOKEN)
+        assert request.headers["authorization"] == "Bearer synthetic-access"
         assert request.headers["authorization"] == "Bearer synthetic-access"
         if str(request.url) == PLAYLISTS_URL:
             return httpx.Response(
@@ -132,6 +143,149 @@ def test_pagination_and_duplicates(store: DemoCredentialStore) -> None:
 
     run(scenario())
     assert len(urls) == 3
+
+
+def test_create_replace_and_verify_playlist_items(store: DemoCredentialStore) -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) != TOKEN_URL:
+            assert request.headers["authorization"] == f"Bearer {TOKEN['access_token']}"
+        requests.append(request)
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json=TOKEN)
+        assert request.headers["authorization"] == "Bearer synthetic-access"
+        assert request.headers["authorization"] == "Bearer synthetic-access"
+        if str(request.url) == CREATE_PLAYLIST_URL:
+            assert request.method == "POST"
+            assert (
+                request.read()
+                == b'{"name":"Artista sintetico","public":true,"collaborative":false}'
+            )
+            return httpx.Response(
+                201,
+                json={
+                    "id": "syntheticPlaylist",
+                    "name": "Artista sintetico",
+                    "public": True,
+                    "collaborative": False,
+                    "owner": {"id": "syntheticOwner"},
+                },
+            )
+        if request.url.path == "/v1/playlists/syntheticPlaylist/items":
+            if request.method == "PUT":
+                assert request.read() == b'{"uris":["spotify:track:one"]}'
+                return httpx.Response(200, json={"snapshot_id": "syntheticSnapshot"})
+            if "offset=50" in request.url.query.decode():
+                return httpx.Response(
+                    200,
+                    json={"items": [{"item": {"id": "two"}}], "next": None},
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "items": [{"item": {"id": "one"}}],
+                    "next": "https://api.spotify.com/v1/playlists/syntheticPlaylist/items?offset=50&limit=50",
+                },
+            )
+        raise AssertionError(f"Unexpected request: {request.method} {request.url.path}")
+
+    async def scenario() -> None:
+        store.save("synthetic-refresh")
+        store.save_scopes(set(AUTH_SCOPES.split()))
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = SpotifyClient(CLIENT_ID, store, http)
+            created = await client.create_public_playlist("Artista sintetico")
+            assert created.id == "syntheticPlaylist"
+            assert created.owner.id == "syntheticOwner"
+            await client.replace_playlist_items(created.id, ["spotify:track:one"])
+            assert await client.playlist_item_ids(created.id) == ["one", "two"]
+
+    run(scenario())
+    assert [request.method for request in requests] == ["POST", "POST", "PUT", "GET", "GET"]
+
+
+def test_library_removal_and_reactivation_use_public_playlist_uri(
+    store: DemoCredentialStore,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json=TOKEN)
+        assert request.url.path == "/v1/me/library"
+        assert request.url.params["uris"] == "spotify:playlist:syntheticPlaylist"
+        return httpx.Response(200)
+
+    async def scenario() -> None:
+        store.save("synthetic-refresh")
+        store.save_scopes(set(AUTH_SCOPES.split()))
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = SpotifyClient(CLIENT_ID, store, http)
+            await client.remove_playlist_from_library("syntheticPlaylist")
+            await client.save_playlist_to_library("syntheticPlaylist")
+
+    run(scenario())
+    assert [request.method for request in requests] == ["POST", "DELETE", "PUT"]
+
+
+def test_unknown_mutation_is_not_retried(store: DemoCredentialStore) -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json=TOKEN)
+        raise httpx.ReadTimeout("synthetic timeout", request=request)
+
+    async def scenario() -> None:
+        store.save("synthetic-refresh")
+        store.save_scopes(set(AUTH_SCOPES.split()))
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = SpotifyClient(CLIENT_ID, store, http)
+            with pytest.raises(MutationOutcomeUnknown):
+                await client.create_public_playlist("Artista")
+
+    run(scenario())
+    assert calls == ["POST", "POST"]
+
+
+def test_missing_write_scope_blocks_mutation(store: DemoCredentialStore) -> None:
+    calls: list[str] = []
+    old_scopes = {"playlist-read-private", "user-library-read"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        return httpx.Response(200, json={**TOKEN, "scope": " ".join(old_scopes)})
+
+    async def scenario() -> None:
+        store.save("synthetic-refresh")
+        store.save_scopes(old_scopes)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = SpotifyClient(CLIENT_ID, store, http)
+            with pytest.raises(ReconnectRequired, match="playlist-modify-public"):
+                await client.create_public_playlist("Artista")
+
+    run(scenario())
+    assert calls == ["POST"]
+
+
+def test_current_account_id_uses_immutable_id(store: DemoCredentialStore) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json=TOKEN)
+        return httpx.Response(200, json={"id": "syntheticAccount"})
+
+    async def scenario() -> None:
+        store.save("synthetic-refresh")
+        store.save_scopes(set(AUTH_SCOPES.split()))
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            assert await SpotifyClient(CLIENT_ID, store, http).current_account_id() == (
+                "syntheticAccount"
+            )
+
+    run(scenario())
 
 
 @pytest.mark.parametrize(

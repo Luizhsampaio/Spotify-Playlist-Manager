@@ -3,7 +3,13 @@
 ## O que é armazenado
 
 - `.env`: Client ID e modo de política, ignorado pelo Git.
-- Gerenciador de Credenciais do Windows: refresh token, separado por Client ID.
+- Gerenciador de Credenciais do Windows: refresh token e escopos concedidos,
+  separados por Client ID.
+- `.local-data/spotify/managed-playlists.json`: registro local ignorado pelo Git,
+  particionado pelo ID imutável da conta Spotify. Guarda chave/ID/nome do artista,
+  ID e proprietário da playlist e estado da operação; não guarda músicas, tokens,
+  nome de perfil ou email. O registro permanece ao desconectar para permitir
+  reutilizar a playlist na mesma conta.
 - Memória do processo: access token, verificador PKCE temporário, sessão e respostas
   de playlists durante a consulta; Músicas Curtidas importadas na sessão do navegador.
 - Navegador: cookie de sessão opaco, HttpOnly e SameSite=Lax, com duração de oito
@@ -45,16 +51,33 @@ também limpa os critérios. Não há logs de termos pesquisados ou de dados da 
 
 **Playlists Gerenciadas** usa a mesma coleção em memória para identificar artistas
 e configurar a seleção de artistas. O modal exibe nomes e contagens;
-nenhum desses dados é enviado a outro
+fora do envio explícito descrito abaixo, esses dados não são enviados a outro
 serviço ou a IA. Seleções são enviadas por POST com CSRF, sem metadados na URL,
 e ficam somente na sessão. Atualizar músicas, reautorizar, sair, desconectar ou
-reiniciar invalida as seleções. **Salvar** guarda somente a seleção na sessão
-atual, sem persistência em disco. Essa operação não cria nem altera playlists no
-Spotify e não solicita novas permissões. Não há histórico persistente de decisões,
-aprovação de escrita, exportação ou sincronização de playlists nesta etapa.
+reiniciar invalida as seleções. No modo demo, **Salvar** guarda somente a seleção
+na sessão e não acessa endpoints Spotify de escrita.
 
-Não há cache da biblioteca em disco, telemetria, scripts externos, chamada de IA
-ou acesso ao perfil. A resposta HTML é marcada `no-store`. O aplicativo não grava
+No modo real, **Salvar** com Ativado é o consentimento explícito para o envio atual.
+O app consulta somente o ID imutável retornado por `GET /v1/me` (`user-read-private`)
+para isolar o registro local; não solicita nem guarda email ou nome de perfil.
+Para artistas selecionados, a playlist pública registrada é sincronizada para
+espelhar exatamente as faixas elegíveis da coleção atual, o que também remove
+faixas adicionadas manualmente ou que já não estejam nas Músicas Curtidas. A
+conclusão integral só é apresentada após ler e comparar todos os IDs de faixa.
+Artistas desmarcados têm a playlist removida apenas de **Sua Biblioteca** por
+`user-library-modify`; a playlist pública não é excluída e pode continuar acessível
+por link. Selecioná-la novamente reutiliza o ID registrado e a salva de volta na
+biblioteca.
+
+As mutações usam `playlist-modify-public` e `user-library-modify`. Timeout ou
+resultado incerto não é repetido automaticamente; o status por artista e o ID/link
+quando conhecido são apresentados para conferência. A sessão do agente não executa
+escritas na conta; testes automatizados usam apenas transporte, credenciais e
+coleção sintéticos. Não há histórico persistente de decisões, exportação ou
+sincronização contínua.
+
+Não há cache da biblioteca em disco, telemetria, scripts externos ou chamada de IA.
+A resposta HTML é marcada `no-store`. O aplicativo não grava
 capas em disco; o cache de imagens do navegador depende dos cabeçalhos do CDN.
 Capas não disponíveis ou com falha de download mantêm o ícone e um aviso explícito.
 O modo demo usa exclusivamente uma ilustração SVG fictícia local, com acesso a

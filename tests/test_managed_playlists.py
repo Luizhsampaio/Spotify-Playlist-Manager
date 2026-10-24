@@ -1,5 +1,8 @@
+import json
 import re
 import time
+from pathlib import Path
+from typing import TypedDict
 
 import httpx
 import pytest
@@ -7,14 +10,21 @@ from fastapi.testclient import TestClient
 
 from music_curator.config import ORIGIN, Settings
 from music_curator.demo import PROTOTYPE_TRACKS, DemoCredentialStore, demo_response
+from music_curator.managed_registry import ManagedPlaylistRegistry
 from music_curator.models import Artist, SavedTrack
 from music_curator.playlist_preview import artist_playlists
-from music_curator.spotify import TOKEN_URL
+from music_curator.spotify import AUTH_SCOPES, CREATE_PLAYLIST_URL, TOKEN_URL
 from music_curator.web import create_app
 
 PAGE = "/app/playlists"
 PREVIEW = "/app/playlists/por-artista/salvar"
 HEADERS = {"Origin": ORIGIN}
+
+
+class SyntheticPlaylist(TypedDict):
+    name: str
+    owner: str
+    items: list[str]
 
 
 def field(html: str, name: str) -> str:
@@ -45,6 +55,114 @@ def post_preview(browser: TestClient, keys: list[str], html: str | None = None) 
     )
     assert isinstance(response, httpx.Response)
     return response
+
+
+def playlist_json(playlist_id: str, playlist: SyntheticPlaylist) -> dict[str, object]:
+    return {
+        "id": playlist_id,
+        "name": playlist["name"],
+        "public": True,
+        "collaborative": False,
+        "owner": {"id": playlist["owner"]},
+    }
+
+
+def synthetic_spotify_app(
+    registry_path: Path,
+    *,
+    timeout_create_once: bool = False,
+    tracks: list[SavedTrack] | None = None,
+) -> tuple[TestClient, dict[str, SyntheticPlaylist], list[tuple[str, str]]]:
+    state: dict[str, SyntheticPlaylist] = {}
+    calls: list[tuple[str, str]] = []
+    timeout_pending = timeout_create_once
+    library_tracks = tracks if tracks is not None else PROTOTYPE_TRACKS
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal timeout_pending
+        if str(request.url) != TOKEN_URL:
+            assert request.headers["authorization"] == "Bearer " + "synthetic-" + "access"
+        path = request.url.path
+        calls.append((request.method, path))
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "synthetic-access",
+                    "refresh_token": "synthetic-refresh",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                    "scope": AUTH_SCOPES,
+                },
+            )
+        assert request.headers["authorization"] == "Bearer synthetic-access"
+        assert request.headers["authorization"] == "Bearer synthetic-access"
+        assert request.headers["authorization"] == "Bearer synthetic-access"
+        if path == "/v1/me/tracks":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [track.model_dump(mode="json") for track in library_tracks],
+                    "next": None,
+                },
+            )
+        if path == "/v1/me":
+            return httpx.Response(200, json={"id": "syntheticAccount"})
+        if str(request.url) == CREATE_PLAYLIST_URL:
+            payload = json.loads(request.read())
+            assert payload["public"] is True
+            assert payload["collaborative"] is False
+            playlist_id = f"syntheticPlaylist{len(state) + 1}"
+            state[playlist_id] = {
+                "name": payload["name"],
+                "owner": "syntheticAccount",
+                "items": [],
+            }
+            if timeout_pending:
+                timeout_pending = False
+                raise httpx.ReadTimeout("synthetic timeout after server-side create")
+            return httpx.Response(201, json=playlist_json(playlist_id, state[playlist_id]))
+        playlist_match = re.fullmatch(r"/v1/playlists/([A-Za-z0-9]+)(/items)?", path)
+        if playlist_match:
+            playlist_id, items_suffix = playlist_match.groups()
+            playlist = state[playlist_id]
+            if items_suffix is None:
+                if request.method == "GET":
+                    return httpx.Response(200, json=playlist_json(playlist_id, playlist))
+                assert request.method == "PUT"
+                playlist["name"] = json.loads(request.read())["name"]
+                return httpx.Response(200)
+            if request.method == "GET":
+                return httpx.Response(
+                    200,
+                    json={
+                        "items": [{"item": {"id": item_id}} for item_id in playlist["items"]],
+                        "next": None,
+                    },
+                )
+            payload = json.loads(request.read())
+            uris = [uri.removeprefix("spotify:track:") for uri in payload["uris"]]
+            if request.method == "PUT":
+                playlist["items"] = uris
+                return httpx.Response(200)
+            assert request.method == "POST"
+            playlist["items"].extend(uris)
+            return httpx.Response(201)
+        if path == "/v1/me/library":
+            assert request.url.params["uris"].startswith("spotify:playlist:")
+            assert request.method in {"PUT", "DELETE"}
+            return httpx.Response(200)
+        raise AssertionError(f"Unexpected synthetic Spotify request: {request.method} {path}")
+
+    store = DemoCredentialStore()
+    store.save("synthetic-refresh")
+    app = create_app(
+        Settings(client_id="0" * 32),
+        store=store,
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        registry_path=registry_path,
+    )
+    return TestClient(app, base_url=ORIGIN), state, calls
 
 
 def selected_keys(html: str) -> set[str]:
@@ -167,9 +285,7 @@ def test_preview_uses_entire_import_not_song_filters(prototype: TestClient) -> N
     assert selected_keys(post_preview(prototype, [group.key]).text) == {group.key}
 
 
-@pytest.mark.parametrize(
-    "kind", ["none", "forged", "duplicate", "extra", "stale", "unicode-revision"]
-)
+@pytest.mark.parametrize("kind", ["forged", "duplicate", "extra", "stale", "unicode-revision"])
 def test_invalid_or_stale_selections_are_explicit(prototype: TestClient, kind: str) -> None:
     enter_demo(prototype)
     page = prototype.get(PAGE)
@@ -241,7 +357,7 @@ def test_refresh_invalidates_preview_and_selection_is_session_local(prototype: T
     assert post_preview(prototype, keys, page.text).status_code == 409
 
 
-def test_real_mode_preview_makes_no_writes_or_additional_spotify_calls() -> None:
+def test_real_mode_inactive_settings_make_no_writes_or_additional_spotify_calls() -> None:
     calls: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -262,11 +378,13 @@ def test_real_mode_preview_makes_no_writes_or_additional_spotify_calls() -> None
         page = browser.get(PAGE)
         assert calls == [("POST", "/api/token"), ("GET", "/v1/me/tracks")]
         calls.clear()
-        keys = [group.key for group in artist_playlists(PROTOTYPE_TRACKS).playlists]
-        preview = post_preview(browser, keys, page.text)
+        preview = browser.post(
+            PREVIEW,
+            data={"csrf": field(page.text, "csrf"), "revision": field(page.text, "revision")},
+            headers=HEADERS,
+        )
         assert preview.status_code == 200
-        assert selected_keys(preview.text) == set(keys)
-        assert "playlist-preview" not in preview.text
+        assert selected_keys(preview.text) == set()
         assert calls == []
         assert "synthetic-access" not in preview.text
         assert "synthetic-refresh" not in preview.text
@@ -304,7 +422,7 @@ def test_empty_and_escaped_artist_collections(kind: str) -> None:
             assert "Sem ID: agrupado por nome" in page.text
         else:
             assert "Nenhum artista disponível" in page.text
-            assert "disabled" in page.text
+            assert 'data-open-artist-dialog aria-haspopup="dialog"' in page.text
             if kind == "unavailable":
                 assert "1 item(ns)" in page.text
 
@@ -385,3 +503,114 @@ def test_invalid_enabled_value_does_not_change_settings(
     assert response.status_code == 400
     assert is_enabled(response.text)
     assert selected_keys(response.text) == {key}
+
+
+def test_active_save_creates_and_exactly_syncs_selected_playlists(tmp_path: Path) -> None:
+    registry_path = tmp_path / "managed.json"
+    browser, playlists, calls = synthetic_spotify_app(registry_path)
+    groups = artist_playlists(PROTOTYPE_TRACKS).playlists
+    selected = groups[:2]
+    keys = [group.key for group in selected]
+    with browser:
+        page = browser.get(PAGE)
+        result = post_preview(browser, keys, page.text)
+        assert result.status_code == 200
+        assert "Todas as faixas foram confirmadas no Spotify." in result.text
+        assert "Abrir playlist no Spotify (ID:" in result.text
+        assert len(playlists) == 2
+        registry = ManagedPlaylistRegistry(registry_path)
+        records = registry.records_for("syntheticAccount")
+        assert set(records) == set(keys)
+        for group in selected:
+            record = records[group.key]
+            assert record.state == "active"
+            assert record.playlist_id is not None
+            expected_ids = [track.id for track in group.tracks]
+            assert playlists[record.playlist_id]["items"] == expected_ids
+
+        first_record = records[selected[0].key]
+        assert first_record.playlist_id is not None
+        playlists[first_record.playlist_id]["items"].append("syntheticManualTrack")
+        page = browser.get(PAGE)
+        result = post_preview(browser, keys, page.text)
+        assert result.status_code == 200
+        assert playlists[first_record.playlist_id]["items"] == [
+            track.id for track in selected[0].tracks
+        ]
+        assert calls.count(("PUT", f"/v1/playlists/{first_record.playlist_id}/items")) == 2
+
+
+def test_deselection_removes_from_library_and_reselection_reuses_playlist(
+    tmp_path: Path,
+) -> None:
+    registry_path = tmp_path / "managed.json"
+    browser, playlists, calls = synthetic_spotify_app(registry_path)
+    group = artist_playlists(PROTOTYPE_TRACKS).playlists[0]
+    with browser:
+        result = post_preview(browser, [group.key])
+        assert result.status_code == 200
+        registry = ManagedPlaylistRegistry(registry_path)
+        record = registry.records_for("syntheticAccount")[group.key]
+        playlist_id = record.playlist_id
+        assert playlist_id is not None
+
+        page = browser.get(PAGE)
+        removed = post_preview(browser, [], page.text)
+        assert removed.status_code == 200
+        assert "removida de Sua Biblioteca" in removed.text
+        assert ("DELETE", "/v1/me/library") in calls
+        assert registry.records_for("syntheticAccount")[group.key].state == "removed"
+        assert playlist_id in playlists
+
+        page = browser.get(PAGE)
+        restored = post_preview(browser, [group.key], page.text)
+        assert restored.status_code == 200
+        assert "Todas as faixas foram confirmadas no Spotify." in restored.text
+        assert calls.count(("POST", "/v1/me/playlists")) == 1
+        assert ("PUT", "/v1/me/library") in calls
+        restored_record = registry.records_for("syntheticAccount")[group.key]
+        assert restored_record.playlist_id == playlist_id
+        assert restored_record.state == "active"
+
+
+def test_large_artist_playlist_uses_spotify_batches_of_one_hundred(tmp_path: Path) -> None:
+    tracks: list[SavedTrack] = []
+    for index in range(205):
+        track = PROTOTYPE_TRACKS[0].model_copy(deep=True)
+        assert track.track is not None
+        track.track.id = f"syntheticBatch{index}"
+        tracks.append(track)
+    registry_path = tmp_path / "managed.json"
+    browser, playlists, calls = synthetic_spotify_app(registry_path, tracks=tracks)
+    group = artist_playlists(tracks).playlists[0]
+
+    with browser:
+        result = post_preview(browser, [group.key])
+        assert result.status_code == 200
+        assert "Todas as faixas foram confirmadas no Spotify." in result.text
+        record = ManagedPlaylistRegistry(registry_path).records_for("syntheticAccount")[group.key]
+        assert record.playlist_id is not None
+        assert playlists[record.playlist_id]["items"] == [track.id for track in group.tracks]
+        item_path = f"/v1/playlists/{record.playlist_id}/items"
+        assert calls.count(("PUT", item_path)) == 1
+        assert calls.count(("POST", item_path)) == 2
+
+
+def test_uncertain_create_is_persisted_and_not_retried(tmp_path: Path) -> None:
+    registry_path = tmp_path / "managed.json"
+    browser, playlists, calls = synthetic_spotify_app(registry_path, timeout_create_once=True)
+    group = artist_playlists(PROTOTYPE_TRACKS).playlists[0]
+    with browser:
+        result = post_preview(browser, [group.key])
+        assert result.status_code == 200
+        assert "a criacao pode ter ocorrido" in result.text.lower()
+        registry = ManagedPlaylistRegistry(registry_path)
+        record = registry.records_for("syntheticAccount")[group.key]
+        assert record.state == "creation_uncertain"
+        assert len(playlists) == 1
+
+        page = browser.get(PAGE)
+        retry = post_preview(browser, [group.key], page.text)
+        assert retry.status_code == 200
+        assert "resultado incerto" in retry.text.lower()
+        assert calls.count(("POST", "/v1/me/playlists")) == 1

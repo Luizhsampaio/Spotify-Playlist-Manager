@@ -8,7 +8,7 @@
 </div>
 {% if artist_collection is not none %}
 <section class="managed-options" aria-label="Opções de playlists">
-  <button class="managed-option" type="button" data-open-artist-dialog aria-haspopup="dialog" aria-controls="artist-playlist-dialog" {% if not artist_collection.playlists %}disabled{% endif %}>
+  <button class="managed-option" type="button" data-open-artist-dialog aria-haspopup="dialog" aria-controls="artist-playlist-dialog">
     <span><strong>Por artista</strong>
       <span>Uma playlist para cada artista escolhido.</span>
       <span class="managed-option-action">Configurar</span></span>
@@ -18,7 +18,9 @@
 {% if not artist_collection.playlists %}
 <div class="empty-workspace"><h2>Nenhum artista disponível para configurar.</h2>
   <p>A coleção não contém músicas com identificação e artistas utilizáveis.
-    Confira <a href="/app/musicas">Minhas Músicas</a> e tente atualizar a coleção.</p></div>
+    Confira <a href="/app/musicas">Minhas Músicas</a> e tente atualizar a coleção.
+    Se já houver playlists gerenciadas, você ainda pode abrir a configuração e limpar a seleção
+    para removê-las de Sua Biblioteca.</p></div>
 {% endif %}
 {% if artist_collection.skipped_tracks %}
 <p class="library-privacy">{{ artist_collection.skipped_tracks }} item(ns) sem faixa, identificação da música ou artista foram desconsiderados. Nenhum dado foi inventado.</p>
@@ -43,8 +45,18 @@
     <legend class="visually-hidden">Configuração dos artistas</legend>
   <p id="artist-dialog-description">Selecione os artistas para esta configuração.
     A fonte é toda a sua coleção de Músicas Curtidas, independentemente dos filtros de Minhas Músicas.</p>
-  <p class="managed-modal-note">Colaborações entram na playlist de cada artista participante selecionado.
-    Uma mesma música não se repete dentro da mesma playlist. Nenhuma alteração será feita no Spotify.</p>
+  <p class="managed-modal-note">
+    {% if demo %}
+    Modo demonstração: Salvar guarda somente a seleção nesta sessão e não altera o Spotify.
+    {% else %}
+    Ao salvar com Ativado, cada playlist será pública e espelhará exatamente as músicas elegíveis
+    da sua coleção. Faixas adicionadas manualmente ou removidas das Músicas Curtidas também serão
+    removidas da playlist. Artistas desmarcados saem de Sua Biblioteca, mas a playlist não é
+    excluída e pode continuar pública ou acessível por link.
+    {% endif %}
+    Colaborações entram na playlist de cada artista participante selecionado; uma mesma música
+    não se repete dentro da mesma playlist.
+  </p>
     <div class="artist-search-field"><label for="managed-artist-search">Pesquisar artistas</label>
       <input id="managed-artist-search" type="search" placeholder="Digite o nome do artista" autocomplete="off" data-artist-search>
     </div>
@@ -70,6 +82,25 @@
     </div>
   </form>
 </dialog>
+{% if playlist_results %}
+<section class="managed-results" aria-labelledby="managed-results-title">
+  <h2 id="managed-results-title">Resultado do último salvamento</h2>
+  <ul>
+    {% for result in playlist_results %}
+    <li class="managed-result managed-result-{{ result.status }}">
+      <strong>{{ result.artist_name }}</strong>
+      <span>{{ {"completed": "Concluído", "partial": "Parcial — verifique", "failed": "Não concluído"}[result.status] }}</span>
+      <p>{{ result.message }}</p>
+      {% if result.playlist_url %}
+      <a href="{{ result.playlist_url }}" target="_blank" rel="noopener noreferrer">
+        Abrir playlist no Spotify (ID: {{ result.playlist_id }})
+      </a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
 {% else %}
 <div class="empty-workspace"><h2>A coleção ainda não está disponível.</h2>
   <p>Abra <a href="/app/musicas">Minhas Músicas</a> para conferir a conexão e atualizar suas músicas.</p></div>
