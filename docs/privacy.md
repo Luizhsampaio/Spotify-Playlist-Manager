@@ -58,6 +58,15 @@ entre sessões e navegadores. Atualizar músicas não invalida a seleção. No m
 demo, **Salvar** guarda somente a seleção na sessão e não acessa endpoints
 Spotify de escrita.
 
+O botão **Atualizar** no modal de playlists faz a mesma importação completa de
+Músicas Curtidas, somente de leitura, em background. Clicar no cartão **Por artista**
+também inicia essa leitura ao abrir o pop-up; não é uma sincronização de escrita.
+O navegador consulta apenas a
+rota local com POST e CSRF, sem dados da coleção na URL e com resposta no-store.
+Pesquisa e marcações em edição são preservadas quando disponíveis; o refresh não
+salva a seleção nem cria, sincroniza ou remove playlists. Falhas não publicam
+resultados parciais. Não há polling ou acesso direto do navegador à API Spotify.
+
 No modo real, cada clique em **Salvar** é o consentimento explícito para aplicar a
 seleção atual; não há interruptor global. O app salva a seleção por conta antes
 das mutações, mas somente após validar todos os vínculos envolvidos. A validação

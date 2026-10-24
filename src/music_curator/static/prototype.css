@@ -146,11 +146,16 @@ a.track-title:hover { text-decoration: underline; }
 .artist-option strong { font-size: 12px; }
 .artist-option small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
 .artist-option-details { min-width: 0; flex: 1 1 auto; }
-.artist-option .artist-playlist-id { flex: 0 1 190px; margin: 0 0 0 auto; color: var(--ink); font-size: 11px; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.artist-option .artist-playlist-id { flex: 0 1 auto; min-width: 0; max-width: 60%; margin: 0 0 0 auto; color: var(--ink); font-size: 11px; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.artist-playlist-reference { display: block; max-width: 100%; white-space: nowrap; overflow-wrap: normal; overflow-x: auto; }
 .artist-no-results { color: var(--muted); font-size: 12px; padding: 12px; }
 .playlist-dialog-footer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 14px; margin-top: 22px; }
 .playlist-dialog-footer > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .playlist-dialog-footer .button { font-size: 12px; padding-inline: 15px; }
+@media (max-width: 560px) {
+  .artist-option { flex-wrap: wrap; }
+  .artist-option .artist-playlist-id { flex: 1 1 calc(100% - 29px); max-width: calc(100% - 29px); margin-left: 29px; text-align: left; }
+}
 @media (max-width: 440px) {
   .playlist-dialog-heading { flex-wrap: wrap; }
   .playlist-dialog { padding: 18px; }

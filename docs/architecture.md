@@ -287,7 +287,7 @@ detalhes não são convertidos em exclusão. Propriedade, privacidade e colabora
 incompatíveis exigem resolução pelo usuário; não são alteradas silenciosamente.
 
 O botão inicial é **Configurar**. Em conflitos, o rodapé oferece somente
-**Cancelar** e **Confirmar e Salvar**, tanto para recriar ausentes selecionados
+**Cancelar**, **Atualizar** e **Confirmar e Salvar**, tanto para recriar ausentes selecionados
 quanto para limpar ausentes desmarcados. Para reconectar, o usuário cancela e
 usa o controle de desconexão do painel antes de conectar novamente. A confirmação
 explícita de substituição fica em `BrowserSession`, vinculada a token de uso único,
@@ -298,14 +298,45 @@ O formulário de confirmação envia as marcações atuais, não uma seleção c
 da tentativa anterior. Ausentes selecionados exigem essa confirmação para recriar
 pelo fluxo normal, com proteção de criação incerta. Ausentes desmarcados podem
 ser limpos sem mutação remota, após revalidação e somente se não houver outros
-impedimentos. O único submit do modal recebe nome/valor de confirmação somente
+impedimentos. O submit de configuração recebe nome/valor de confirmação somente
 quando há autorização pendente por ausência comprovada. Nos demais conflitos,
-o mesmo botão apenas reenvia a seleção para nova validação, sem autorizar recriação.
-Cancelar/fechar o dialog de conflitos retorna por GET à configuração salva,
-invalidando a confirmação pendente. O submit preserva o nome/valor do botão de
+o botão de confirmação apenas reenvia a seleção para nova validação, sem autorizar recriação.
+Cancelar/fechar o dialog de conflitos sem refresh assíncrono retorna por GET à
+configuração salva, invalidando a confirmação pendente. O submit preserva o nome/valor do botão de
 confirmação antes de desabilitar os botões para evitar envio duplicado.
 
 O Spotify não oferece uma transação para o lote inteiro. A fase prévia evita
 iniciar operações com conflitos conhecidos, mas não impede mudanças externas ou
 falhas após o início. Resultados parciais continuam explícitos e não são revertidos
 por mutações compensatórias automáticas.
+
+### Atualização manual no modal
+
+O botão Atualizar usa `POST /app/playlists/por-artista/atualizar`, com os mesmos
+controles de sessão, origem, CSRF, revisão e validação de artistas do formulário.
+Reutiliza `refresh_tracks` e o lock de importação para ler todas as páginas, sem
+persistir seleção ou executar mutações de playlists. Sucesso troca a coleção e
+revisão; falha transitória mantém a última importação completa.
+O clique no cartão Por artista abre o dialog imediatamente e aciona essa mesma
+leitura assíncrona. O botão Atualizar continua disponível para repetir a consulta.
+Não disparar leitura ao reabrir automaticamente o modal de conflitos após um
+salvamento: isso invalidaria a confirmação recém-apresentada e poderia causar loops.
+
+O JavaScript envia o formulário via fetch local com Accept application/json. A
+resposta contém mensagem, sucesso explícito, revisão, seleção persistida e HTML
+renderizado pelo template existente. Atualiza somente as opções do modal via
+DOMParser/replaceChildren, preservando pesquisa, rolagem, foco e as marcações mais
+recentes, inclusive edições feitas enquanto a leitura estava em andamento.
+A CSP permite connect-src somente self; o navegador não consulta a API Spotify.
+Sem JavaScript, a rota também aceita envio normal com resposta HTML.
+
+Não há navegação/reload na atualização assíncrona. Os controles de envio são
+bloqueados durante a consulta para evitar sobreposição. Fechar descarta edições,
+mas deixa a leitura finita concluir; reabrir aguarda essa conclusão antes da próxima
+consulta para não enviar revisão obsoleta nem sobrepor paginações. Sair da página
+aborta a espera do navegador. A configuração persistida não é alterada, e os defaults dos
+checkboxes são restaurados para essa seleção ao cancelar/reabrir.
+Artistas marcados que deixam a coleção são avisados explicitamente; seus registros
+e IDs não são removidos pelo refresh. Confirmações de substituição são invalidadas,
+e a ação seguinte volta à validação normal com a nova revisão. Não há polling,
+atualização automática na navegação, timestamp ou nova regra de playlists vazias.

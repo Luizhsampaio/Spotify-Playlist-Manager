@@ -535,6 +535,7 @@ def test_active_save_creates_and_exactly_syncs_selected_playlists(tmp_path: Path
                 re.DOTALL,
             )
             assert artist_row
+            assert 'class="artist-playlist-reference"' in artist_row[0]
             assert f"Playlist ID: <span>{record.playlist_id}</span>" in artist_row[0]
 
         first_record = records[selected[0].key]
@@ -742,7 +743,7 @@ def test_missing_playlist_requires_choice_and_creates_only_after_confirmation(
         assert "Ausente de Sua Biblioteca" in conflict.text
         dialog = re.search(r"<dialog\b.*?</dialog>", conflict.text, re.DOTALL)
         assert dialog
-        assert dialog[0].count('type="submit"') == 1
+        assert dialog[0].count('type="submit"') == 2
         assert re.findall(r"data-artist-save-submit[^>]*>([^<]+)</button>", dialog[0]) == [
             "Confirmar e Salvar"
         ]
@@ -1077,3 +1078,262 @@ def test_cancel_conflicts_restores_saved_selection_without_mutation(tmp_path: Pa
         assert confirm_replacement(browser, conflict).status_code == 409
         assert playlist_writes(calls) == []
         assert path.read_bytes() == before
+
+
+def refresh_artists(
+    browser: TestClient, html: str, keys: list[str], *, as_json: bool = False
+) -> httpx.Response:
+    response = browser.post(
+        "/app/playlists/por-artista/atualizar",
+        data={
+            "csrf": field(html, "csrf"),
+            "revision": field(html, "revision"),
+            "artists": keys,
+        },
+        headers={**HEADERS, "Accept": "application/json"} if as_json else HEADERS,
+    )
+    assert isinstance(response, httpx.Response)
+    return response
+
+
+def test_refresh_button_is_between_cancel_and_configure_and_demo_stays_synthetic(
+    prototype: TestClient,
+) -> None:
+    enter_demo(prototype)
+    html = prototype.get(PAGE).text
+    footer = re.search(r'<div class="playlist-dialog-footer">.*?</form>', html, re.DOTALL)
+    assert footer
+    assert re.findall(r"<button[^>]*>([^<]+)</button>", footer[0]) == [
+        "Cancelar",
+        "Atualizar",
+        "Configurar",
+    ]
+    key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
+    result = refresh_artists(prototype, html, [key])
+    assert result.status_code == 200
+    assert "data-open-on-load" in result.text
+    assert selected_keys(result.text) == {key}
+    assert "ainda nao foram salvas" in result.text
+
+
+def test_refresh_updates_all_tracks_and_artists_without_saving_or_spotify_writes(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "managed.json"
+    tracks = [PROTOTYPE_TRACKS[0].model_copy(deep=True)]
+    browser, _, calls = synthetic_spotify_app(path, tracks=tracks)
+    original = artist_playlists(tracks).playlists[0]
+    with browser:
+        html = browser.get(PAGE).text
+        tracks.extend(item.model_copy(deep=True) for item in PROTOTYPE_TRACKS[1:4])
+        calls.clear()
+        result = refresh_artists(browser, html, [original.key])
+        assert result.status_code == 200
+        assert "data-open-on-load" in result.text
+        assert selected_keys(result.text) == {original.key}
+        assert field(result.text, "revision") != field(html, "revision")
+        assert result.text.count('name="artists" value="') == len(
+            artist_playlists(tracks).playlists
+        )
+        assert "2 músicas" in result.text
+        assert calls.count(("GET", "/v1/me/tracks")) == 1
+        assert playlist_writes(calls) == []
+        assert not path.exists()
+        assert f"{len(tracks)} músicas importadas" in browser.get("/app/musicas").text
+
+
+def test_refresh_preserves_unsaved_marks_and_existing_ids_until_configure(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "managed.json"
+    tracks = [item.model_copy(deep=True) for item in PROTOTYPE_TRACKS]
+    browser, remote, calls = synthetic_spotify_app(path, tracks=tracks)
+    keys = [group.key for group in artist_playlists(tracks).playlists[:2]]
+    registry = ManagedPlaylistRegistry(path)
+    with browser:
+        saved = post_preview(browser, keys[:1])
+        before = path.read_bytes()
+        calls.clear()
+        updated = refresh_artists(browser, saved.text, keys[1:])
+        assert updated.status_code == 200
+        assert selected_keys(updated.text) == set(keys[1:])
+        assert "Playlist ID: <span>syntheticPlaylist1</span>" in updated.text
+        assert registry.selection_for("syntheticAccount") == set(keys[:1])
+        assert path.read_bytes() == before
+        assert len(remote) == 1
+        assert playlist_writes(calls) == []
+        assert selected_keys(browser.get(PAGE).text) == set(keys[:1])
+
+
+def test_refresh_warns_about_disappeared_artist_without_removing_playlist(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "managed.json"
+    tracks = [PROTOTYPE_TRACKS[0].model_copy(deep=True)]
+    browser, _, calls = synthetic_spotify_app(path, tracks=tracks)
+    key = artist_playlists(tracks).playlists[0].key
+    with browser:
+        saved = post_preview(browser, [key])
+        before = path.read_bytes()
+        tracks.clear()
+        calls.clear()
+        result = refresh_artists(browser, saved.text, [key])
+        assert result.status_code == 200
+        assert "1 artista(s) marcado(s) nao estao mais na colecao" in result.text
+        assert selected_keys(result.text) == set()
+        assert 'name="artists"' not in result.text
+        assert path.read_bytes() == before
+        assert playlist_writes(calls) == []
+
+
+def test_refresh_failure_keeps_previous_complete_collection_and_draft(
+    tmp_path: Path,
+) -> None:
+    failing = False
+
+    def override(request: httpx.Request) -> httpx.Response | None:
+        if failing and request.url.path == "/v1/me/tracks":
+            if "offset" in request.url.params:
+                return httpx.Response(500, text="synthetic-private-response")
+            partial = PROTOTYPE_TRACKS[0].model_dump(mode="json")
+            partial["track"]["name"] = "syntheticPartialNotPublished"
+            return httpx.Response(
+                200,
+                json={"items": [partial], "next": "https://api.spotify.com/v1/me/tracks?offset=1"},
+            )
+        return None
+
+    path = tmp_path / "managed.json"
+    browser, _, calls = synthetic_spotify_app(path, override=override)
+    key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
+    with browser:
+        saved = post_preview(browser, [key])
+        before = path.read_bytes()
+        failing = True
+        calls.clear()
+        result = refresh_artists(browser, saved.text, [key])
+        assert result.status_code == 502
+        assert "data-open-on-load" in result.text
+        assert 'role="alert"' in result.text
+        assert "syntheticPartialNotPublished" not in result.text
+        assert "synthetic-private-response" not in result.text
+        assert selected_keys(result.text) == {key}
+        assert "Playlist ID: <span>syntheticPlaylist1</span>" in result.text
+        assert path.read_bytes() == before
+        assert playlist_writes(calls) == []
+
+
+def test_refresh_invalidates_old_replacement_confirmation_and_uses_new_tracks_on_save(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "managed.json"
+    tracks = [PROTOTYPE_TRACKS[0].model_copy(deep=True)]
+    browser, remote, calls = synthetic_spotify_app(path, tracks=tracks)
+    key = artist_playlists(tracks).playlists[0].key
+    with browser:
+        assert post_preview(browser, [key]).status_code == 200
+        remote["syntheticPlaylist1"]["in_library"] = False
+        conflict = post_preview(browser, [key])
+        assert conflict.status_code == 409
+        tracks.append(PROTOTYPE_TRACKS[3].model_copy(deep=True))
+        calls.clear()
+        refreshed = refresh_artists(browser, conflict.text, [key])
+        assert refreshed.status_code == 200
+        assert 'name="confirmation"' not in refreshed.text
+        assert playlist_writes(calls) == []
+        assert confirm_replacement(browser, conflict).status_code == 409
+        new_conflict = post_preview(browser, [key], refreshed.text)
+        assert new_conflict.status_code == 409
+        result = confirm_replacement(browser, new_conflict)
+        assert result.status_code == 200
+        assert remote["syntheticPlaylist2"]["items"] == [
+            track.id for track in artist_playlists(tracks).playlists[0].tracks
+        ]
+
+
+@pytest.mark.parametrize("invalid", ["origin", "csrf", "revision", "artist", "extra"])
+def test_modal_refresh_rejects_invalid_forms_without_importing(
+    tmp_path: Path, invalid: str
+) -> None:
+    browser, _, calls = synthetic_spotify_app(tmp_path / "managed.json")
+    with browser:
+        html = browser.get(PAGE).text
+        data: dict[str, str | list[str]] = {
+            "csrf": field(html, "csrf"),
+            "revision": field(html, "revision"),
+        }
+        if invalid in {"csrf", "revision"}:
+            data[invalid] = "forged"
+        elif invalid == "artist":
+            data["artists"] = ["forged"]
+        elif invalid == "extra":
+            data["confirmation"] = "forged"
+        calls.clear()
+        result = browser.post(
+            "/app/playlists/por-artista/atualizar",
+            data=data,
+            headers={"Origin": "https://external.example"} if invalid == "origin" else HEADERS,
+        )
+        assert result.status_code == (
+            403 if invalid in {"origin", "csrf"} else 409 if invalid == "revision" else 400
+        )
+        assert calls == []
+
+
+def test_background_refresh_returns_updated_html_and_saved_selection_without_redirect(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "managed.json"
+    tracks = [PROTOTYPE_TRACKS[0].model_copy(deep=True)]
+    browser, _, calls = synthetic_spotify_app(path, tracks=tracks)
+    key = artist_playlists(tracks).playlists[0].key
+    with browser:
+        saved = post_preview(browser, [key])
+        before = path.read_bytes()
+        tracks.extend(item.model_copy(deep=True) for item in PROTOTYPE_TRACKS[1:4])
+        calls.clear()
+        result = refresh_artists(browser, saved.text, [], as_json=True)
+        assert result.status_code == 200
+        assert result.headers["content-type"] == "application/json"
+        assert result.history == []
+        data = result.json()
+        assert data["success"] is True
+        assert data["selected_artists"] == [key]
+        assert selected_keys(data["html"]) == set()
+        assert data["revision"] == field(data["html"], "revision")
+        assert "2 músicas" in data["html"]
+        assert "connect-src 'self'" in result.headers["content-security-policy"]
+        assert result.headers["cache-control"] == "no-store"
+        assert path.read_bytes() == before
+        assert playlist_writes(calls) == []
+
+
+def test_background_refresh_failure_reports_error_and_retains_complete_collection(
+    tmp_path: Path,
+) -> None:
+    failing = False
+
+    def override(request: httpx.Request) -> httpx.Response | None:
+        if failing and request.url.path == "/v1/me/tracks":
+            return httpx.Response(500, text="synthetic-private-response")
+        return None
+
+    path = tmp_path / "managed.json"
+    browser, _, calls = synthetic_spotify_app(path, override=override)
+    key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
+    with browser:
+        saved = post_preview(browser, [key])
+        before = path.read_bytes()
+        failing = True
+        calls.clear()
+        result = refresh_artists(browser, saved.text, [key], as_json=True)
+        assert result.status_code == 502
+        assert result.history == []
+        data = result.json()
+        assert data["success"] is False
+        assert isinstance(data["message"], str)
+        assert selected_keys(data["html"]) == {key}
+        assert data["revision"] == field(saved.text, "revision")
+        assert "synthetic-private-response" not in result.text
+        assert path.read_bytes() == before
+        assert playlist_writes(calls) == []

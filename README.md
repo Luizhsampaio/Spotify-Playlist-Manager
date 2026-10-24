@@ -116,12 +116,24 @@ Encerre a demonstração antes de iniciar a versão real na mesma porta.
 No menu lateral, **Playlists Gerenciadas** abre as opções de organização.
 Clique em **Por artista** para abrir uma janela de configuração:
 
+Ao abrir pelo cartão, a aplicação já relê as Músicas Curtidas em background,
+mantendo o pop-up aberto e mostrando o andamento. Essa leitura não salva a
+configuração nem altera playlists; os botões de envio aguardam sua conclusão.
+
 1. Pesquise os artistas encontrados na coleção importada de Músicas Curtidas.
    A seleção já salva para a conta é marcada ao abrir; uma configuração nova
    começa sem artistas selecionados. O ID da playlist vinculada aparece ao lado
-   do artista; quando ainda não existe vínculo, isso também é indicado.
+   do artista, com rótulo e valor na mesma linha; quando ainda não existe vínculo,
+   isso também é indicado. Em telas pequenas, a referência pode ficar abaixo do
+   nome para preservar a leitura.
 2. Selecione um ou mais artistas. **Selecionar todos** inclui todos os artistas,
    inclusive os ocultos pela pesquisa; **Limpar seleção** desmarca todos.
+   **Atualizar**, entre Cancelar e Configurar, relê todas as Músicas Curtidas em
+   background e atualiza os artistas e suas contagens no próprio pop-up, sem
+   recarregar a página. Preserva a pesquisa e as marcações disponíveis; artistas
+   novos entram desmarcados. Se algum marcado sair da coleção, um aviso pede
+   revisão. Essa ação não salva a configuração nem altera playlists no Spotify.
+   Se falhar, a lista anterior permanece com um aviso de erro.
 3. Clique em **Configurar**. No modo demo, isso guarda apenas a seleção nesta sessão.
    No modo real, primeiro verifica permissões e todos os vínculos envolvidos.
    Se houver conflito impeditivo, o envio inteiro é interrompido antes de alterar
@@ -169,7 +181,7 @@ faixas que serão sincronizadas. Abrir a configuração apenas mostra os IDs loc
 a verificação remota ocorre no salvamento, sem polling.
 
 Os problemas aparecem no próprio pop-up, com destaque nos artistas afetados e o ID
-antigo preservado. No rodapé do pop-up ficam apenas **Cancelar** e **Confirmar e Salvar**.
+antigo preservado. No rodapé ficam **Cancelar**, **Atualizar** e **Confirmar e Salvar**.
 Para reconectar, cancele e use a opção de desconexão no painel antes de conectar
 novamente, sem uma tela de conflitos separada.
 
@@ -181,6 +193,9 @@ para os ausentes selecionados e também aplica o restante da seleção. Outros
 conflitos impeditivos continuam bloqueando o envio inteiro.
 A playlist antiga pode continuar existindo e acessível por link. Cancelar ou fechar
 o pop-up de conflitos retorna à configuração persistida, sem gravar as edições.
+Atualizar invalida confirmações anteriores e exige uma nova validação antes de
+aplicar a configuração. Após atualizar, cancelar descarta somente as marcações
+em edição; a coleção recém-importada continua disponível em Minhas Músicas.
 
 Timeout, acesso negado, limite de consultas, respostas inválidas e falhas do Spotify
 não comprovam ausência: preservam o ID e não liberam substituição. Um erro 404 nos

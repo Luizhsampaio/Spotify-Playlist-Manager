@@ -25,11 +25,12 @@
 {% if artist_collection.skipped_tracks %}
 <p class="library-privacy">{{ artist_collection.skipped_tracks }} item(ns) sem faixa, identificação da música ou artista foram desconsiderados. Nenhum dado foi inventado.</p>
 {% endif %}
-<dialog id="artist-playlist-dialog" class="playlist-dialog" aria-labelledby="artist-dialog-title" aria-describedby="artist-dialog-description" {% if open_artist_dialog %}data-open-on-load{% endif %} {% if validation_issues is not none %}data-playlist-conflicts{% endif %}>
+<dialog id="artist-playlist-dialog" class="playlist-dialog" aria-labelledby="artist-dialog-title" aria-describedby="artist-dialog-description" {% if open_artist_dialog %}data-open-on-load{% endif %} {% if validation_issues is not none %}data-playlist-conflicts{% endif %} {% if artist_draft %}data-artist-draft{% endif %}>
   <div class="playlist-dialog-heading">
     <div><span class="eyebrow">CONFIGURAÇÃO</span><h2 id="artist-dialog-title">Playlist por artista</h2></div>
     <button type="button" class="dialog-close" data-close-artist-dialog aria-label="Fechar configuração" autofocus>×</button>
   </div>
+  <p class="feedback" role="status" data-artist-refresh-status hidden></p>
   {% if open_artist_dialog %}{{ feedback() }}{% endif %}
   <form id="artist-settings-form" method="post" action="/app/playlists/por-artista/salvar">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -83,7 +84,7 @@
           <small>{{ playlist.tracks | length }} {{ "música" if playlist.tracks | length == 1 else "músicas" }}{% if not playlist.artist_id %} · Sem ID: agrupado por nome{% endif %}</small></span>
         <small class="artist-playlist-id">
           {% if playlist.key in managed_playlist_ids %}
-          Playlist ID: <span>{{ managed_playlist_ids[playlist.key] }}</span>
+          <span class="artist-playlist-reference">Playlist ID: <span>{{ managed_playlist_ids[playlist.key] }}</span></span>
           {% elif demo %}
           Sem vínculo com Spotify no modo demonstração
           {% elif not playlist_bindings_available %}
@@ -104,6 +105,7 @@
     </fieldset>
     <div class="playlist-dialog-footer">
       <div><button class="button button-dark" type="button" data-close-artist-dialog>Cancelar</button>
+        <button class="button button-dark" type="submit" formaction="/app/playlists/por-artista/atualizar" data-artist-refresh-submit>Atualizar</button>
         <button class="button button-green" type="submit" data-artist-save-submit{% if pending_playlist_save and validation_issues is not none %} name="confirmation" value="{{ pending_playlist_save.token }}"{% endif %}>{% if validation_issues is not none %}Confirmar e Salvar{% else %}Configurar{% endif %}</button>
       </div>
     </div>

@@ -11,7 +11,13 @@ from urllib.parse import parse_qs
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -527,7 +533,7 @@ def create_app(
                 "X-Content-Type-Options": "nosniff",
                 "X-Frame-Options": "DENY",
                 "Content-Security-Policy": (
-                    "default-src 'none'; style-src 'self'; script-src 'self'; "
+                    "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; "
                     f"img-src 'self'{' https://i.scdn.co/image/' if not demo else ''}; "
                     "form-action 'self' https://accounts.spotify.com; "
                     "frame-ancestors 'none'; base-uri 'none'"
@@ -683,7 +689,13 @@ def create_app(
             import_failed = True
             name = "songs"
         managed_playlist_ids: dict[str, str] = {}
-        if name == "managed_playlists" and signed_in and status_code == 200 and not demo:
+        if (
+            name == "managed_playlists"
+            and signed_in
+            and status_code == 200
+            and not demo
+            and playlist_records is None
+        ):
             try:
                 account_id = await client.current_account_id()
                 session.selected_artists = registry.selection_for(account_id)
@@ -742,6 +754,7 @@ def create_app(
                         issue.artist_key for issue in validation_issues or [] if issue.missing
                     },
                     "pending_playlist_save": session.pending_playlist_save,
+                    "artist_draft": attempted_selection is not None,
                 },
                 status_code=status_code,
             )
@@ -771,6 +784,100 @@ def create_app(
         if session is not None:
             session.pending_playlist_save = None
         return await product_page(request, "managed_playlists")
+
+    @app.post("/app/playlists/por-artista/atualizar")
+    async def refresh_artist_playlist_settings(request: Request) -> Response:
+        verified = await verified_form(request, max_fields=10004, max_bytes=1024 * 1024)
+        if verified is None:
+            return PlainTextResponse(
+                "Sessao ou formulario invalido. Reabra a pagina.", status_code=403
+            )
+        session, fields = verified
+        selected = fields.get("artists", [])
+        message: str | None = None
+        status = 400
+        records: dict[str, ManagedPlaylistRecord] | None = None
+        async with session.import_lock:
+            available = (
+                {group.key for group in artist_playlists(session.tracks).playlists}
+                if session.tracks is not None
+                else set()
+            )
+            if set(fields) - {"csrf", "revision", "artists"}:
+                message = "Formulario invalido. Use somente as opcoes apresentadas."
+            elif (
+                len(fields.get("revision", [])) != 1
+                or not fields["revision"][0].isascii()
+                or not secrets.compare_digest(fields["revision"][0], session.tracks_revision)
+            ):
+                message = "A colecao foi atualizada. Reabra a configuracao e tente novamente."
+                status = 409
+            elif len(selected) != len(set(selected)) or not set(selected).issubset(available):
+                message = "Selecao de artistas invalida. Reabra a configuracao."
+            else:
+                try:
+                    connected = session.prototype_signed_in if demo else client.saved_connection()
+                    if not connected:
+                        return RedirectResponse("/entrar", status_code=303)
+                    account_id = None if demo else await client.current_account_id()
+                    if account_id is not None:
+                        records = registry.records_for(account_id)
+                    session.pending_playlist_save = None
+                    if not await refresh_tracks(request.cookies.get(COOKIE, ""), session):
+                        return PlainTextResponse(
+                            "Sessao ou conexao alterada. Reabra a pagina.", status_code=409
+                        )
+                    if session.import_message:
+                        message, status = session.import_message, session.import_status
+                    else:
+                        current_keys = {
+                            group.key for group in artist_playlists(session.tracks or []).playlists
+                        }
+                        removed_count = len(set(selected) - current_keys)
+                        selected = [key for key in selected if key in current_keys]
+                        if account_id is not None:
+                            records = registry.records_for(account_id)
+                        message = (
+                            "Musicas e artistas atualizados. As marcacoes ainda nao foram salvas."
+                        )
+                        if removed_count:
+                            message += (
+                                f" {removed_count} artista(s) marcado(s) nao estao mais "
+                                "na colecao. Revise a selecao antes de configurar; "
+                                "nenhuma playlist foi alterada."
+                            )
+                        status = 200
+                except AppError as exc:
+                    message, status = str(exc), 503
+        response = await product_page(
+            request,
+            "managed_playlists",
+            message=message,
+            error=status != 200,
+            status_code=status,
+            open_artist_dialog=True,
+            attempted_selection=set(selected) & available if status != 200 else set(selected),
+            playlist_records=records,
+        )
+        if "application/json" in request.headers.get("accept", ""):
+            if not isinstance(response, HTMLResponse):
+                return JSONResponse(
+                    {"success": False, "message": "Conexao alterada. Reabra a configuracao."},
+                    status_code=409,
+                )
+            return JSONResponse(
+                {
+                    "success": status == 200 and response.status_code == 200,
+                    "message": message
+                    if response.status_code == status
+                    else "Nao foi possivel concluir a atualizacao. Reabra a configuracao.",
+                    "revision": session.tracks_revision,
+                    "selected_artists": sorted(session.selected_artists),
+                    "html": bytes(response.body).decode("utf-8"),
+                },
+                status_code=response.status_code,
+            )
+        return response
 
     @app.post("/app/playlists/por-artista/salvar")
     async def save_artist_playlist_settings(request: Request) -> Response:
