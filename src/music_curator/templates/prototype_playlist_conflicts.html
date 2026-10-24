@@ -1,0 +1,71 @@
+{% extends "app_shell.html" %}
+{% block title %}Revisar salvamento — Curador Musical{% endblock %}
+{% block app_content %}
+<div class="dashboard-heading">
+  <span class="eyebrow">PLAYLISTS GERENCIADAS</span>
+  <h1>Revise o salvamento<span class="brand-dot">.</span></h1>
+  <p>Os vínculos precisam de atenção. Nenhuma substituição é autorizada sem sua escolha.</p>
+</div>
+{% if validation_issues %}
+<section class="managed-results" aria-labelledby="playlist-conflicts-title">
+  <h2 id="playlist-conflicts-title">Problemas encontrados</h2>
+  <ul>
+    {% for issue in validation_issues %}
+    <li class="managed-result managed-result-failed">
+      <strong>{{ issue.artist_name }}</strong>
+      {% if issue.playlist_id %}<p>Playlist ID: {{ issue.playlist_id }}</p>{% endif %}
+      <p>{{ issue.message }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% if pending_playlist_save %}
+<section aria-labelledby="replacement-title">
+  <h2 id="replacement-title">Confirmar a configuração</h2>
+  <p>A ausência em Sua Biblioteca foi confirmada. A playlist antiga pode continuar existindo
+    no Spotify. Você decide se deseja criar uma nova playlist gerenciada para cada artista
+    ausente que permaneceu selecionado.</p>
+  <p>Esta confirmação também aplica o restante da seleção enviada: artistas selecionados são
+    criados ou sincronizados e artistas desmarcados saem de Sua Biblioteca.
+    Vínculos ausentes de artistas desmarcados serão apenas apagados localmente.</p>
+  <p>A situação será verificada novamente antes das alterações. Uma falha durante as
+    alterações pode gerar resultado parcial; o Spotify não oferece uma transação única.</p>
+  <form method="post" action="/app/playlists/por-artista/salvar">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="revision" value="{{ tracks_revision }}">
+    <input type="hidden" name="confirmation" value="{{ pending_playlist_save.token }}">
+    <button class="button button-green" type="submit">Confirmar substituições e aplicar seleção</button>
+  </form>
+</section>
+{% else %}
+<p>Se a playlist mapeada tiver sido removida, sugerimos criar uma nova playlist gerenciada.
+  Primeiro, verifique novamente para confirmar a ausência. Erros de conexão, acesso ou
+  permissão não comprovam exclusão e não liberam a substituição.</p>
+{% endif %}
+<section aria-labelledby="save-selection-title">
+  <h2 id="save-selection-title">Seleção enviada</h2>
+  <ul>
+    {% for playlist in artist_collection.playlists if playlist.key in attempted_selection %}
+    <li>{{ playlist.name }}</li>
+    {% else %}
+    <li>Nenhum artista selecionado.</li>
+    {% endfor %}
+  </ul>
+</section>
+<div class="playlist-conflict-actions">
+  <a class="button button-dark" href="/app/playlists">Voltar à configuração / cancelar</a>
+  <form method="post" action="/app/playlists/por-artista/salvar">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="revision" value="{{ tracks_revision }}">
+    {% for key in attempted_selection | sort %}
+    <input type="hidden" name="artists" value="{{ key }}">
+    {% endfor %}
+    <button class="button button-dark" type="submit">Verificar novamente e tentar salvar</button>
+  </form>
+  <form method="post" action="/connect">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="button button-dark" type="submit">Reconectar Spotify</button>
+  </form>
+</div>
+{% endblock %}

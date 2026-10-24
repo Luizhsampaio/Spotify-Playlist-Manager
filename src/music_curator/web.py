@@ -1,6 +1,7 @@
 import asyncio
 import secrets
 import time
+from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -49,6 +50,27 @@ class PendingLogin:
 
 
 @dataclass
+class PlaylistValidationIssue:
+    artist_key: str
+    artist_name: str
+    playlist_id: str | None
+    message: str
+    missing: bool = False
+
+
+@dataclass
+class PendingPlaylistSave:
+    token: str
+    account_id: str
+    selected_keys: set[str]
+    previous_selection: set[str]
+    records: dict[str, ManagedPlaylistRecord]
+    missing_keys: set[str]
+    tracks_revision: str
+    expires_at: float
+
+
+@dataclass
 class BrowserSession:
     csrf: str
     expires_at: float
@@ -66,6 +88,91 @@ class BrowserSession:
     tracks_revision: str = field(default_factory=lambda: secrets.token_urlsafe(24))
     selected_artists: set[str] = field(default_factory=set)
     playlist_results: list[PlaylistMutationResult] = field(default_factory=list)
+    pending_playlist_save: PendingPlaylistSave | None = None
+
+
+async def _validate_playlist_save(
+    client: SpotifyClient,
+    account_id: str,
+    records: dict[str, ManagedPlaylistRecord],
+    selected_groups: list[ArtistPlaylist],
+) -> list[PlaylistValidationIssue]:
+    issues: list[PlaylistValidationIssue] = []
+    groups = {group.key: group for group in selected_groups}
+    registered_ids = Counter(
+        record.playlist_id for record in records.values() if record.state != "removed"
+    )
+    for group in selected_groups:
+        if not group.name.strip() or len(group.name) > 100:
+            issues.append(
+                PlaylistValidationIssue(
+                    group.key,
+                    group.name,
+                    None,
+                    "O nome da playlist deve ter de 1 a 100 caracteres.",
+                )
+            )
+    ids = [
+        record.playlist_id
+        for record in records.values()
+        if record.playlist_id is not None
+        and record.state in {"active", "created"}
+        and record.owner_id == account_id
+    ]
+    presence = await client.playlists_in_library(ids)
+    for key, record in records.items():
+        if record.state == "removed":
+            continue
+        issue = PlaylistValidationIssue(key, record.artist_name, record.playlist_id, "")
+        if record.state in {"pending_create", "creation_uncertain", "uncertain"}:
+            issue.message = (
+                "A operacao anterior tem resultado incerto. Verifique sua conta antes de "
+                "resolver o registro; uma nova criacao automatica pode gerar duplicatas."
+            )
+        elif record.owner_id != account_id:
+            issue.message = "O proprietario registrado nao corresponde a conta conectada."
+        elif key in groups and record.artist_id != groups[key].artist_id:
+            issue.message = "A identidade do artista nao corresponde ao registro."
+        elif record.playlist_id is None:
+            issue.message = "O registro nao contem um ID verificavel."
+        elif registered_ids[record.playlist_id] > 1:
+            issue.message = (
+                "A mesma playlist esta vinculada a mais de um artista. "
+                "Resolva o conflito de vinculos antes de salvar."
+            )
+        elif not presence[record.playlist_id]:
+            issue.message = (
+                "A playlist mapeada nao esta em Sua Biblioteca. "
+                "Voce pode confirmar a criacao de uma nova playlist gerenciada se o artista "
+                "continuar selecionado, ou voltar e desmarca-lo para encerrar o vinculo."
+            )
+            issue.missing = True
+        else:
+            try:
+                details = await client.get_managed_playlist(record.playlist_id)
+            except AppError as exc:
+                issue.message = (
+                    f"{exc} Se a playlist foi removida, sera necessario criar uma nova "
+                    "playlist gerenciada. Verifique novamente para confirmar a ausencia "
+                    "antes de autorizar a substituicao."
+                )
+            else:
+                if details.owner.id != account_id:
+                    issue.message = "O proprietario da playlist nao corresponde a conta conectada."
+                elif details.public is not True or details.collaborative:
+                    issue.message = (
+                        "A playlist deixou de ser publica ou passou a ser colaborativa. "
+                        "Restaure a configuracao no Spotify se quiser manter este vinculo; "
+                        "nenhuma alteracao sera desfeita automaticamente."
+                    )
+                elif key in groups:
+                    try:
+                        await client.playlist_item_ids(record.playlist_id)
+                    except AppError as exc:
+                        issue.message = f"Nao foi possivel validar as faixas da playlist. {exc}"
+        if issue.message:
+            issues.append(issue)
+    return issues
 
 
 def _record_with_state(
@@ -189,7 +296,12 @@ async def _manage_selected_artist(
             str(exc),
             playlist_id,
         )
-    if details.owner.id != record.owner_id or details.public is not True or details.collaborative:
+    if (
+        details.owner.id != account_id
+        or details.owner.id != record.owner_id
+        or details.public is not True
+        or details.collaborative
+    ):
         return _playlist_result(
             artist_key,
             group.name,
@@ -304,7 +416,12 @@ async def _remove_deselected_artist(
             "O registro nao contem um ID verificavel.",
         )
     details = await client.get_managed_playlist(playlist_id)
-    if details.owner.id != record.owner_id or details.public is not True or details.collaborative:
+    if (
+        details.owner.id != account_id
+        or details.owner.id != record.owner_id
+        or details.public is not True
+        or details.collaborative
+    ):
         return _playlist_result(
             record.artist_key,
             record.artist_name,
@@ -536,6 +653,8 @@ def create_app(
         reconnect: bool = False,
         import_failed: bool = False,
         open_artist_dialog: bool = False,
+        validation_issues: list[PlaylistValidationIssue] | None = None,
+        attempted_selection: set[str] | None = None,
     ) -> Response:
         sid, session, created = session_for(request)
         if message is None:
@@ -582,7 +701,9 @@ def create_app(
         else:
             response = templates.TemplateResponse(
                 request=request,
-                name=f"prototype_{name}.html",
+                name="prototype_playlist_conflicts.html"
+                if validation_issues is not None
+                else f"prototype_{name}.html",
                 context={
                     "csrf": session.csrf,
                     "signed_in": signed_in,
@@ -606,6 +727,9 @@ def create_app(
                     "tracks_revision": session.tracks_revision,
                     "open_artist_dialog": open_artist_dialog,
                     "playlist_results": session.playlist_results,
+                    "validation_issues": validation_issues,
+                    "attempted_selection": attempted_selection or set(),
+                    "pending_playlist_save": session.pending_playlist_save,
                 },
                 status_code=status_code,
             )
@@ -631,6 +755,9 @@ def create_app(
 
     @app.get("/app/playlists")
     async def managed_playlists_page(request: Request) -> Response:
+        session = sessions.get(request.cookies.get(COOKIE, ""))
+        if session is not None:
+            session.pending_playlist_save = None
         return await product_page(request, "managed_playlists")
 
     @app.post("/app/playlists/por-artista/salvar")
@@ -651,6 +778,20 @@ def create_app(
             return RedirectResponse("/entrar", status_code=303)
 
         async with session.import_lock:
+            pending = session.pending_playlist_save
+            session.pending_playlist_save = None
+            confirmation = fields.get("confirmation", [])
+            confirming = bool(confirmation)
+            confirmation_valid = (
+                confirming
+                and len(confirmation) == 1
+                and confirmation[0].isascii()
+                and pending is not None
+                and pending.expires_at > time.monotonic()
+                and pending.tracks_revision == session.tracks_revision
+                and secrets.compare_digest(confirmation[0], pending.token)
+                and not demo
+            )
             message = None
             status = 400
             if session.tracks is None:
@@ -662,10 +803,21 @@ def create_app(
             ):
                 message = "A colecao foi atualizada. Reabra a configuracao e selecione os artistas."
                 status = 409
-            elif set(fields) - {"csrf", "revision", "artists"}:
+            elif set(fields) - (
+                {"csrf", "revision", "confirmation"}
+                if confirming
+                else {"csrf", "revision", "artists"}
+            ):
                 message = "Formulario invalido. Use somente as opcoes apresentadas."
+            elif confirming and not confirmation_valid:
+                message = "A confirmacao expirou ou ja foi utilizada. Verifique novamente."
+                status = 409
             else:
-                selected = fields.get("artists", [])
+                selected = (
+                    list(pending.selected_keys)
+                    if confirming and pending is not None
+                    else fields.get("artists", [])
+                )
                 available = {group.key for group in artist_playlists(session.tracks).playlists}
                 if len(selected) != len(set(selected)) or not set(selected).issubset(available):
                     message = "Selecao de artistas invalida. Reabra a configuracao."
@@ -678,12 +830,81 @@ def create_app(
                     else:
                         try:
                             async with playlist_operation_lock:
+                                version = connection_version
                                 account_id = await client.current_account_id()
-                                registry.save_selection(account_id, selected_keys)
                                 records = registry.records_for(account_id)
+                                previous_selection = registry.selection_for(account_id)
+                                if (
+                                    confirming
+                                    and pending is not None
+                                    and (
+                                        pending.account_id != account_id
+                                        or pending.records != records
+                                        or pending.previous_selection != previous_selection
+                                    )
+                                ):
+                                    raise AppError(
+                                        "A conta ou os vinculos mudaram desde a confirmacao. "
+                                        "Volte a configuracao e verifique novamente."
+                                    )
                                 selected_groups = [
                                     group for group in groups if group.key in selected_keys
                                 ]
+                                await client.validate_management_permissions()
+                                issues = await _validate_playlist_save(
+                                    client, account_id, records, selected_groups
+                                )
+                                missing_keys = {
+                                    issue.artist_key for issue in issues if issue.missing
+                                }
+                                confirmed = (
+                                    confirming
+                                    and pending is not None
+                                    and missing_keys == pending.missing_keys
+                                    and len(missing_keys) == len(issues)
+                                )
+                                if issues and not confirmed:
+                                    if len(missing_keys) == len(issues):
+                                        session.pending_playlist_save = PendingPlaylistSave(
+                                            token=secrets.token_urlsafe(32),
+                                            account_id=account_id,
+                                            selected_keys=selected_keys,
+                                            previous_selection=previous_selection,
+                                            records=records,
+                                            missing_keys=missing_keys,
+                                            tracks_revision=session.tracks_revision,
+                                            expires_at=time.monotonic() + 600,
+                                        )
+                                    return await product_page(
+                                        request,
+                                        "managed_playlists",
+                                        message=(
+                                            "O salvamento foi interrompido antes das alteracoes. "
+                                            "Escolha como deseja continuar."
+                                        ),
+                                        error=True,
+                                        status_code=409,
+                                        validation_issues=issues,
+                                        attempted_selection=selected_keys,
+                                    )
+                                if confirming and not confirmed:
+                                    raise AppError(
+                                        "A situacao das playlists mudou. Volte a configuracao "
+                                        "e salve novamente; nenhuma substituicao foi feita."
+                                    )
+                                if (
+                                    version != connection_version
+                                    or sessions.get(request.cookies.get(COOKIE, "")) is not session
+                                    or session.expires_at <= time.monotonic()
+                                ):
+                                    raise AppError(
+                                        "A sessao ou conexao mudou durante a verificacao. "
+                                        "Reabra a configuracao."
+                                    )
+                                registry.save_selection(account_id, selected_keys)
+                                for key in missing_keys:
+                                    registry.delete_record(account_id, key)
+                                    del records[key]
                                 results: list[PlaylistMutationResult] = []
                                 for group in selected_groups:
                                     record = records.get(group.key)
@@ -752,8 +973,15 @@ def create_app(
                                     )
                                     session.message_error = False
                         except AppError as exc:
-                            message = str(exc)
-                            status = 502
+                            return await product_page(
+                                request,
+                                "managed_playlists",
+                                message=str(exc),
+                                error=True,
+                                status_code=502,
+                                validation_issues=[],
+                                attempted_selection=selected_keys,
+                            )
         if message:
             return await product_page(
                 request,
@@ -924,6 +1152,7 @@ def create_app(
             for item in sessions.values():
                 item.tracks = None
                 item.selected_artists.clear()
+                item.pending_playlist_save = None
                 item.filters = SongFilters()
                 item.pending = None
                 item.import_attempted = False

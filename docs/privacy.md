@@ -60,7 +60,10 @@ Spotify de escrita.
 
 No modo real, cada clique em **Salvar** é o consentimento explícito para aplicar a
 seleção atual; não há interruptor global. O app salva a seleção por conta antes
-das mutações.
+das mutações, mas somente após validar todos os vínculos envolvidos. A validação
+consulta a presença dos IDs registrados em Sua Biblioteca, detalhes das playlists
+e faixas dos destinos selecionados. Um conflito bloqueia o envio inteiro antes de
+alterações, preservando a seleção e os registros anteriores.
 O app consulta somente o ID imutável retornado por `GET /v1/me` (`user-read-private`)
 para isolar o registro local; não solicita nem guarda email ou nome de perfil.
 Para artistas selecionados, a playlist pública registrada é sincronizada para
@@ -72,6 +75,13 @@ Artistas desmarcados têm a playlist removida apenas de **Sua Biblioteca** por
 por link, mas o ID local é apagado após confirmação. Selecionar o artista novamente
 cria uma playlist nova. Se a remoção tiver resultado incerto, o ID é mantido
 temporariamente e impede criação automática até resolução segura.
+
+Se uma playlist for removida manualmente do Spotify, a tela de revisão permite
+cancelar, verificar novamente ou reconectar. A ausência confirmada na biblioteca
+permite oferecer a criação de uma substituta, mediante confirmação explícita.
+Consultas inconclusivas não autorizam apagar IDs ou criar substitutas. A confirmação
+fica apenas na memória da sessão por até dez minutos, sem novos dados na URL,
+sem logs e com revalidação antes de aplicar a seleção.
 
 As mutações usam `playlist-modify-public` e `user-library-modify`. Timeout ou
 resultado incerto não é repetido automaticamente; o status por artista e o ID/link

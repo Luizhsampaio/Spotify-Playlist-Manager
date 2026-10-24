@@ -1,8 +1,9 @@
 import json
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import httpx
 import pytest
@@ -25,6 +26,9 @@ class SyntheticPlaylist(TypedDict):
     name: str
     owner: str
     items: list[str]
+    in_library: NotRequired[bool]
+    public: NotRequired[bool]
+    collaborative: NotRequired[bool]
 
 
 def field(html: str, name: str) -> str:
@@ -60,8 +64,8 @@ def playlist_json(playlist_id: str, playlist: SyntheticPlaylist) -> dict[str, ob
     return {
         "id": playlist_id,
         "name": playlist["name"],
-        "public": True,
-        "collaborative": False,
+        "public": playlist.get("public", True),
+        "collaborative": playlist.get("collaborative", False),
         "owner": {"id": playlist["owner"]},
     }
 
@@ -72,19 +76,25 @@ def synthetic_spotify_app(
     timeout_create_once: bool = False,
     timeout_remove_once: bool = False,
     tracks: list[SavedTrack] | None = None,
+    override: Callable[[httpx.Request], httpx.Response | None] | None = None,
 ) -> tuple[TestClient, dict[str, SyntheticPlaylist], list[tuple[str, str]]]:
     state: dict[str, SyntheticPlaylist] = {}
     calls: list[tuple[str, str]] = []
     timeout_pending = timeout_create_once
     remove_timeout_pending = timeout_remove_once
+    next_id = 0
     library_tracks = tracks if tracks is not None else PROTOTYPE_TRACKS
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal timeout_pending, remove_timeout_pending
+        nonlocal timeout_pending, remove_timeout_pending, next_id
         if str(request.url) != TOKEN_URL:
             assert request.headers["authorization"] == "Bearer " + "synthetic-" + "access"
         path = request.url.path
         calls.append((request.method, path))
+        if override is not None:
+            overridden = override(request)
+            if overridden is not None:
+                return overridden
         if str(request.url) == TOKEN_URL:
             return httpx.Response(
                 200,
@@ -109,11 +119,25 @@ def synthetic_spotify_app(
             )
         if path == "/v1/me":
             return httpx.Response(200, json={"id": "syntheticAccount"})
+        if path == "/v1/me/library/contains":
+            assert request.method == "GET"
+            ids = [
+                uri.removeprefix("spotify:playlist:")
+                for uri in request.url.params["uris"].split(",")
+            ]
+            assert len(ids) <= 40
+            return httpx.Response(
+                200, json=[value in state and state[value].get("in_library", True) for value in ids]
+            )
         if str(request.url) == CREATE_PLAYLIST_URL:
             payload = json.loads(request.read())
             assert payload["public"] is True
             assert payload["collaborative"] is False
-            playlist_id = f"syntheticPlaylist{len(state) + 1}"
+            next_id += 1
+            playlist_id = f"syntheticPlaylist{next_id}"
+            while playlist_id in state:
+                next_id += 1
+                playlist_id = f"syntheticPlaylist{next_id}"
             state[playlist_id] = {
                 "name": payload["name"],
                 "owner": "syntheticAccount",
@@ -126,6 +150,8 @@ def synthetic_spotify_app(
         playlist_match = re.fullmatch(r"/v1/playlists/([A-Za-z0-9]+)(/items)?", path)
         if playlist_match:
             playlist_id, items_suffix = playlist_match.groups()
+            if playlist_id not in state:
+                return httpx.Response(404)
             playlist = state[playlist_id]
             if items_suffix is None:
                 if request.method == "GET":
@@ -152,6 +178,9 @@ def synthetic_spotify_app(
         if path == "/v1/me/library":
             assert request.url.params["uris"].startswith("spotify:playlist:")
             assert request.method in {"PUT", "DELETE"}
+            playlist_id = request.url.params["uris"].removeprefix("spotify:playlist:")
+            if playlist_id in state:
+                state[playlist_id]["in_library"] = request.method == "PUT"
             if request.method == "DELETE" and remove_timeout_pending:
                 remove_timeout_pending = False
                 raise httpx.ReadTimeout("synthetic timeout after library removal")
@@ -535,7 +564,9 @@ def test_deselection_removes_from_library_and_reselection_creates_new_playlist(
         page = browser.get(PAGE)
         removed = post_preview(browser, [], page.text)
         assert removed.status_code == 200
-        assert "removida de Sua Biblioteca" in removed.text
+        assert "removida de Sua Biblioteca" in removed.text, re.findall(
+            r'<li class="managed-result.*?</li>', removed.text, re.DOTALL
+        )
         assert ("DELETE", "/v1/me/library") in calls
         assert registry.records_for("syntheticAccount") == {}
         assert registry.selection_for("syntheticAccount") == set()
@@ -544,7 +575,9 @@ def test_deselection_removes_from_library_and_reselection_creates_new_playlist(
         page = browser.get(PAGE)
         restored = post_preview(browser, [group.key], page.text)
         assert restored.status_code == 200
-        assert "Todas as faixas foram confirmadas no Spotify." in restored.text
+        assert "Todas as faixas foram confirmadas no Spotify." in restored.text, re.findall(
+            r'<li class="managed-result.*?</li>', restored.text, re.DOTALL
+        )
         assert calls.count(("POST", "/v1/me/playlists")) == 2
         restored_record = registry.records_for("syntheticAccount")[group.key]
         assert restored_record.playlist_id != playlist_id
@@ -569,7 +602,7 @@ def test_uncertain_library_removal_keeps_id_and_blocks_recreation(tmp_path: Path
         assert retained.state == "uncertain"
 
         selection = post_preview(browser, [group.key])
-        assert selection.status_code == 200
+        assert selection.status_code == 409
         assert "resultado incerto" in selection.text.lower()
         assert registry.records_for("syntheticAccount")[group.key].playlist_id == playlist_id
         assert calls.count(("POST", "/v1/me/playlists")) == 1
@@ -642,6 +675,332 @@ def test_uncertain_create_is_persisted_and_not_retried(tmp_path: Path) -> None:
 
         page = browser.get(PAGE)
         retry = post_preview(browser, [group.key], page.text)
-        assert retry.status_code == 200
+        assert retry.status_code == 409
         assert "resultado incerto" in retry.text.lower()
         assert calls.count(("POST", "/v1/me/playlists")) == 1
+
+
+def confirm_replacement(browser: TestClient, page: httpx.Response) -> httpx.Response:
+    response = browser.post(
+        PREVIEW,
+        data={
+            "csrf": field(page.text, "csrf"),
+            "revision": field(page.text, "revision"),
+            "confirmation": field(page.text, "confirmation"),
+        },
+        headers=HEADERS,
+    )
+    assert isinstance(response, httpx.Response)
+    return response
+
+
+def playlist_writes(calls: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    return [(method, path) for method, path in calls if method != "GET" and path != "/api/token"]
+
+
+@pytest.mark.parametrize("deleted", [False, True])
+def test_missing_playlist_requires_choice_and_creates_only_after_confirmation(
+    tmp_path: Path, deleted: bool
+) -> None:
+    path = tmp_path / "managed.json"
+    browser, remote, calls = synthetic_spotify_app(path)
+    group = artist_playlists(PROTOTYPE_TRACKS).playlists[0]
+    registry = ManagedPlaylistRegistry(path)
+    with browser:
+        assert post_preview(browser, [group.key]).status_code == 200
+        original_id = registry.records_for("syntheticAccount")[group.key].playlist_id
+        assert original_id is not None
+        if deleted:
+            del remote[original_id]
+        else:
+            remote[original_id]["in_library"] = False
+        before = path.read_bytes()
+        calls.clear()
+        conflict = post_preview(browser, [group.key])
+        assert conflict.status_code == 409
+        assert "Revise o salvamento" in conflict.text
+        assert "nao esta em Sua Biblioteca" in conflict.text
+        assert original_id in conflict.text
+        assert "Confirmar substituições e aplicar seleção" in conflict.text
+        assert "Verificar novamente e tentar salvar" in conflict.text
+        assert playlist_writes(calls) == []
+        assert path.read_bytes() == before
+
+        result = confirm_replacement(browser, conflict)
+        assert result.status_code == 200
+        new_record = registry.records_for("syntheticAccount")[group.key]
+        assert new_record.playlist_id is not None
+        assert new_record.playlist_id != original_id
+        assert remote[new_record.playlist_id]["items"] == [track.id for track in group.tracks]
+        assert ("DELETE", "/v1/me/library") not in calls
+        created_count = calls.count(("POST", "/v1/me/playlists"))
+        replay = confirm_replacement(browser, conflict)
+        assert replay.status_code == 409
+        assert calls.count(("POST", "/v1/me/playlists")) == created_count
+
+
+def test_absent_deselected_playlist_can_be_cleared_without_remote_mutation(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "managed.json"
+    browser, remote, calls = synthetic_spotify_app(path)
+    group = artist_playlists(PROTOTYPE_TRACKS).playlists[0]
+    registry = ManagedPlaylistRegistry(path)
+    with browser:
+        assert post_preview(browser, [group.key]).status_code == 200
+        record = registry.records_for("syntheticAccount")[group.key]
+        assert record.playlist_id is not None
+        remote[record.playlist_id]["in_library"] = False
+        calls.clear()
+        conflict = post_preview(browser, [])
+        assert conflict.status_code == 409
+        assert registry.selection_for("syntheticAccount") == {group.key}
+        result = confirm_replacement(browser, conflict)
+        assert result.status_code == 200
+        assert registry.records_for("syntheticAccount") == {}
+        assert registry.selection_for("syntheticAccount") == set()
+        assert playlist_writes(calls) == []
+
+
+@pytest.mark.parametrize("change", ["private", "collaborative", "owner", "items"])
+def test_validation_failure_in_one_artist_blocks_entire_submission(
+    tmp_path: Path, change: str
+) -> None:
+    fail_items = False
+
+    def override(request: httpx.Request) -> httpx.Response | None:
+        if fail_items and request.url.path == "/v1/playlists/syntheticPlaylist2/items":
+            return httpx.Response(404)
+        return None
+
+    path = tmp_path / "managed.json"
+    browser, remote, calls = synthetic_spotify_app(path, override=override)
+    keys = [group.key for group in artist_playlists(PROTOTYPE_TRACKS).playlists]
+    with browser:
+        assert post_preview(browser, keys[:2]).status_code == 200
+        before = path.read_bytes()
+        if change == "private":
+            remote["syntheticPlaylist2"]["public"] = False
+        elif change == "collaborative":
+            remote["syntheticPlaylist2"]["collaborative"] = True
+        elif change == "owner":
+            remote["syntheticPlaylist2"]["owner"] = "anotherAccount"
+        else:
+            fail_items = True
+        remote["syntheticPlaylist1"]["items"].append("syntheticManualTrack")
+        calls.clear()
+        result = post_preview(browser, keys[:3])
+        assert result.status_code == 409
+        assert "Revise o salvamento" in result.text
+        assert 'name="confirmation"' not in result.text
+        assert path.read_bytes() == before
+        assert remote["syntheticPlaylist1"]["items"][-1] == "syntheticManualTrack"
+        assert playlist_writes(calls) == []
+
+
+@pytest.mark.parametrize("failure", ["timeout", "401", "403", "429", "500", "malformed"])
+def test_library_verification_failure_never_authorizes_replacement(
+    tmp_path: Path, failure: str
+) -> None:
+    failing = False
+
+    def override(request: httpx.Request) -> httpx.Response | None:
+        if not failing or request.url.path != "/v1/me/library/contains":
+            return None
+        if failure == "timeout":
+            raise httpx.ReadTimeout("synthetic-private-error")
+        if failure == "malformed":
+            return httpx.Response(200, json=["false"])
+        return httpx.Response(int(failure))
+
+    path = tmp_path / "managed.json"
+    browser, _, calls = synthetic_spotify_app(path, override=override)
+    key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
+    with browser:
+        assert post_preview(browser, [key]).status_code == 200
+        before = path.read_bytes()
+        failing = True
+        calls.clear()
+        result = post_preview(browser, [key])
+        assert result.status_code == 502
+        assert "Revise o salvamento" in result.text
+        assert 'name="confirmation"' not in result.text
+        assert "synthetic-private-error" not in result.text
+        assert playlist_writes(calls) == []
+        assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("status", [403, 404, 500])
+def test_inaccessible_details_do_not_prove_absence(tmp_path: Path, status: int) -> None:
+    failing = False
+
+    def override(request: httpx.Request) -> httpx.Response | None:
+        if failing and request.url.path == "/v1/playlists/syntheticPlaylist1":
+            return httpx.Response(status)
+        return None
+
+    path = tmp_path / "managed.json"
+    browser, _, calls = synthetic_spotify_app(path, override=override)
+    key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
+    with browser:
+        assert post_preview(browser, [key]).status_code == 200
+        before = path.read_bytes()
+        failing = True
+        calls.clear()
+        result = post_preview(browser, [key])
+        assert result.status_code == 409
+        assert "sera necessario criar uma nova" in result.text
+        assert 'name="confirmation"' not in result.text
+        assert playlist_writes(calls) == []
+        assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("change", ["restored", "registry", "cancel", "collection", "expiry"])
+def test_replacement_confirmation_is_invalidated_by_changed_context(
+    tmp_path: Path, change: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "managed.json"
+    browser, remote, calls = synthetic_spotify_app(path)
+    key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
+    registry = ManagedPlaylistRegistry(path)
+    with browser:
+        assert post_preview(browser, [key]).status_code == 200
+        remote["syntheticPlaylist1"]["in_library"] = False
+        conflict = post_preview(browser, [key])
+        assert conflict.status_code == 409
+        if change == "restored":
+            remote["syntheticPlaylist1"]["in_library"] = True
+        elif change == "registry":
+            registry.save_selection("syntheticAccount", set())
+        elif change == "cancel":
+            assert browser.get(PAGE).status_code == 200
+        elif change == "collection":
+            browser.post(
+                "/app/musicas/importar",
+                data={"csrf": field(conflict.text, "csrf")},
+                headers=HEADERS,
+            )
+        else:
+            now = time.monotonic()
+            monkeypatch.setattr("music_curator.web.time.monotonic", lambda: now + 601)
+        before = path.read_bytes()
+        calls.clear()
+        result = confirm_replacement(browser, conflict)
+        assert result.status_code in {409, 502}
+        assert playlist_writes(calls) == []
+        assert path.read_bytes() == before
+
+
+def test_two_browser_confirmations_cannot_create_two_replacements(tmp_path: Path) -> None:
+    path = tmp_path / "managed.json"
+    browser, remote, calls = synthetic_spotify_app(path)
+    key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
+    with browser, TestClient(browser.app, base_url=ORIGIN) as other:
+        assert post_preview(browser, [key]).status_code == 200
+        remote["syntheticPlaylist1"]["in_library"] = False
+        first_conflict = post_preview(browser, [key])
+        second_conflict = post_preview(other, [key])
+        assert first_conflict.status_code == second_conflict.status_code == 409
+        calls.clear()
+        assert confirm_replacement(browser, first_conflict).status_code == 200
+        assert confirm_replacement(other, second_conflict).status_code == 502
+        assert calls.count(("POST", "/v1/me/playlists")) == 1
+
+
+def test_known_absence_and_unresolved_conflict_do_not_offer_confirmation(tmp_path: Path) -> None:
+    path = tmp_path / "managed.json"
+    browser, remote, calls = synthetic_spotify_app(path)
+    keys = [group.key for group in artist_playlists(PROTOTYPE_TRACKS).playlists[:2]]
+    with browser:
+        assert post_preview(browser, keys).status_code == 200
+        remote["syntheticPlaylist1"]["in_library"] = False
+        remote["syntheticPlaylist2"]["public"] = False
+        before = path.read_bytes()
+        calls.clear()
+        result = post_preview(browser, keys)
+        assert result.status_code == 409
+        assert "nao esta em Sua Biblioteca" in result.text
+        assert "deixou de ser publica" in result.text
+        assert 'name="confirmation"' not in result.text
+        assert playlist_writes(calls) == []
+        assert path.read_bytes() == before
+
+
+def test_management_permissions_are_checked_before_creating_any_playlist(tmp_path: Path) -> None:
+    def override(request: httpx.Request) -> httpx.Response | None:
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "synthetic-access",
+                    "refresh_token": "synthetic-refresh",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                    "scope": "user-library-read user-read-private",
+                },
+            )
+        return None
+
+    path = tmp_path / "managed.json"
+    browser, _, calls = synthetic_spotify_app(path, override=override)
+    key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
+    with browser:
+        result = post_preview(browser, [key])
+        assert result.status_code == 502
+        assert "playlist-modify-public" in result.text
+        assert "Reconectar Spotify" in result.text
+        assert playlist_writes(calls) == []
+        assert not path.exists()
+
+
+def test_duplicate_registered_destination_blocks_all_changes(tmp_path: Path) -> None:
+    path = tmp_path / "managed.json"
+    browser, _, calls = synthetic_spotify_app(path)
+    groups = artist_playlists(PROTOTYPE_TRACKS).playlists[:2]
+    keys = [group.key for group in groups]
+    registry = ManagedPlaylistRegistry(path)
+    with browser:
+        assert post_preview(browser, keys).status_code == 200
+        records = registry.records_for("syntheticAccount")
+        registry.save_record(
+            "syntheticAccount",
+            records[keys[1]].model_copy(update={"playlist_id": records[keys[0]].playlist_id}),
+        )
+        before = path.read_bytes()
+        calls.clear()
+        result = post_preview(browser, keys)
+        assert result.status_code == 409
+        assert "mais de um artista" in result.text
+        assert 'name="confirmation"' not in result.text
+        assert playlist_writes(calls) == []
+        assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("invalid", ["token", "csrf", "origin"])
+def test_replacement_confirmation_rejects_forged_requests(tmp_path: Path, invalid: str) -> None:
+    path = tmp_path / "managed.json"
+    browser, remote, calls = synthetic_spotify_app(path)
+    key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
+    with browser:
+        assert post_preview(browser, [key]).status_code == 200
+        remote["syntheticPlaylist1"]["in_library"] = False
+        conflict = post_preview(browser, [key])
+        data = {
+            "csrf": field(conflict.text, "csrf"),
+            "revision": field(conflict.text, "revision"),
+            "confirmation": field(conflict.text, "confirmation"),
+        }
+        if invalid == "token":
+            data["confirmation"] = "forged"
+        elif invalid == "csrf":
+            data["csrf"] = "forged"
+        before = path.read_bytes()
+        calls.clear()
+        result = browser.post(
+            PREVIEW,
+            data=data,
+            headers={"Origin": "https://external.example"} if invalid == "origin" else HEADERS,
+        )
+        assert result.status_code == (409 if invalid == "token" else 403)
+        assert playlist_writes(calls) == []
+        assert path.read_bytes() == before

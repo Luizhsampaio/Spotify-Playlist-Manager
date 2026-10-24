@@ -317,6 +317,63 @@ class SpotifyClient:
     async def list_saved_tracks(self) -> list[SavedTrack]:
         return await self._read_collection(SAVED_TRACKS_URL, "/v1/me/tracks", SavedTrackPage)
 
+    async def validate_management_permissions(self) -> None:
+        async with self._lock:
+            await self._access_token()
+            for scope in (
+                PROFILE_SCOPE,
+                LIBRARY_SCOPE,
+                PUBLIC_PLAYLIST_SCOPE,
+                LIBRARY_MODIFY_SCOPE,
+            ):
+                self._require_scope(
+                    scope, f"Reconecte o Spotify e autorize {scope} antes de salvar."
+                )
+
+    async def playlists_in_library(self, playlist_ids: list[str]) -> dict[str, bool]:
+        if any(not re.fullmatch(r"[A-Za-z0-9]{1,128}", value) for value in playlist_ids):
+            raise AppError("O registro contem um ID de playlist invalido.")
+        result: dict[str, bool] = {}
+        async with self._lock:
+            for start in range(0, len(playlist_ids), 40):
+                batch = playlist_ids[start : start + 40]
+                uris = ",".join(f"spotify:playlist:{value}" for value in batch)
+                url = f"{LIBRARY_API_URL}/contains?{urlencode({'uris': uris})}"
+                token = await self._access_token()
+                self._require_scope(
+                    LIBRARY_SCOPE, "Reconecte o Spotify para verificar Sua Biblioteca."
+                )
+                response = await self._request("GET", url, token=token)
+                if response.status_code == 401:
+                    token = await self._access_token(force=True)
+                    self._require_scope(
+                        LIBRARY_SCOPE, "Reconecte o Spotify para verificar Sua Biblioteca."
+                    )
+                    response = await self._request("GET", url, token=token)
+                if response.status_code in {401, 403}:
+                    raise ReconnectRequired(
+                        "O Spotify negou a verificacao da biblioteca. Reconecte sua conta."
+                    )
+                if response.status_code != 200:
+                    raise AppError(
+                        "Nao foi possivel verificar a presenca das playlists em Sua Biblioteca. "
+                        "Nenhum vinculo foi considerado ausente."
+                    )
+                try:
+                    values = response.json()
+                except ValueError as exc:
+                    raise AppError(
+                        "O Spotify retornou uma verificacao de biblioteca invalida."
+                    ) from exc
+                if (
+                    not isinstance(values, list)
+                    or len(values) != len(batch)
+                    or any(type(value) is not bool for value in values)
+                ):
+                    raise AppError("O Spotify retornou uma verificacao de biblioteca invalida.")
+                result.update(zip(batch, values, strict=True))
+        return result
+
     async def get_managed_playlist(self, playlist_id: str) -> ManagedPlaylistDetails:
         if not re.fullmatch(r"[A-Za-z0-9]{1,128}", playlist_id):
             raise AppError("O registro contem um ID de playlist invalido.")

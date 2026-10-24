@@ -236,8 +236,8 @@ cada importação completa; o lock de importação serializa a validação da se
 Formulários desatualizados são recusados, sem anunciar sucesso.
 
 A seleção é reaberta pelo cartão **Por artista**, sem seção de prévia externa.
-Cancelar não altera a configuração anterior; **Salvar** persiste a seleção para
-a conta antes de reconciliar playlists. Não há interruptor global: cada salvamento
+Cancelar não altera a configuração anterior; **Salvar** valida o envio inteiro e
+persiste a seleção para a conta antes de reconciliar playlists. Não há interruptor global: cada salvamento
 aplica a seleção atual, inclusive uma seleção vazia. A configuração persistente
 está no registro `.local-data/spotify/managed-playlists.json`, particionado pelo
 `account_id` retornado por `GET /v1/me`; contém as chaves de artistas selecionados
@@ -251,7 +251,7 @@ O caminho do registro é resolvido a partir da localização do aplicativo, não
 diretório de trabalho do processo, para manter a persistência entre reinicializações.
 
 No modo real, **Salvar** usa `playlist-modify-public`,
-`user-library-modify` e `user-read-private`. Antes da criação, persiste um estado
+`user-library-modify`, `user-library-read` e `user-read-private`. Antes da criação, persiste um estado
 pendente; após a resposta, registra imediatamente o ID e proprietário. Playlists
 existentes só são alteradas após validar ID, proprietário registrado, visibilidade
 pública e ausência de colaboração. O conteúdo é substituído por URIs elegíveis das
@@ -267,3 +267,32 @@ criação automática; estados incertos de criação também bloqueiam retry. Fa
 resultados parciais aparecem por artista, sem sucesso integral não verificado.
 Um lock global serializa envios.
 `SPOTIFY_AI_POLICY_MODE=blocked` permanece inalterado.
+
+### Validação prévia e escolha em conflitos
+
+Antes de persistir a seleção ou executar mutações, o POST verifica permissões,
+estados locais incertos, identidade do artista, propriedade da conta, duplicidade
+de destinos e nomes válidos. Consulta `GET /v1/me/library/contains` em lotes de até
+40 URIs para verificar presença, além dos detalhes dos destinos presentes e das
+faixas dos selecionados. As respostas devem ser listas de booleanos estritos com
+o tamanho exato do lote. Um problema interrompe o envio inteiro e renderiza
+`prototype_playlist_conflicts.html`, com explicação e ações de escolha.
+
+Somente presença `false` confirmada permite oferecer substituição, sem descartar
+o ID durante a verificação. Timeout, 401/403, 429, 5xx, payload inválido e 404 de
+detalhes não são convertidos em exclusão. Propriedade, privacidade e colaboração
+incompatíveis exigem resolução pelo usuário; não são alteradas silenciosamente.
+
+O usuário pode cancelar/editar, verificar novamente ou reconectar. A confirmação
+explícita de substituição fica em `BrowserSession`, vinculada a token de uso único,
+conta, revisão da coleção, seleção pretendida, seleção anterior e snapshot dos
+registros. Expira em dez minutos. A confirmação revalida os vínculos sob o lock
+global; mudanças no contexto ou nos destinos ausentes interrompem a aplicação.
+Somente então os registros ausentes confirmados são descartados: selecionados são
+recriados pelo fluxo normal, com proteção de criação incerta; desmarcados são
+limpos sem mutação remota. O GET da configuração cancela confirmações pendentes.
+
+O Spotify não oferece uma transação para o lote inteiro. A fase prévia evita
+iniciar operações com conflitos conhecidos, mas não impede mudanças externas ou
+falhas após o início. Resultados parciais continuam explícitos e não são revertidos
+por mutações compensatórias automáticas.

@@ -538,3 +538,70 @@ def test_bad_json_and_invalid_playlist_id(store: DemoCredentialStore) -> None:
 
     run(scenario("not-a-page"))
     run(scenario({"items": [{"id": "../unsafe", "name": "Synthetic"}]}))
+
+
+def test_library_presence_uses_batches_of_forty(store: DemoCredentialStore) -> None:
+    batches: list[list[str]] = []
+    ids = [f"syntheticPlaylist{index}" for index in range(81)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json=TOKEN)
+        assert request.method == "GET"
+        assert request.url.path == "/v1/me/library/contains"
+        uris = request.url.params["uris"].split(",")
+        batches.append(uris)
+        return httpx.Response(200, json=[index % 2 == 0 for index in range(len(uris))])
+
+    async def scenario() -> None:
+        store.save("synthetic-refresh")
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = SpotifyClient(CLIENT_ID, store, http)
+            result = await client.playlists_in_library(ids)
+            assert len(result) == 81
+            assert result[ids[0]] is True
+            assert result[ids[1]] is False
+
+    run(scenario())
+    assert [len(batch) for batch in batches] == [40, 40, 1]
+    assert [uri for batch in batches for uri in batch] == [
+        f"spotify:playlist:{value}" for value in ids
+    ]
+
+
+@pytest.mark.parametrize("payload", [None, {}, [], [False, True], [0], ["false"]])
+def test_library_presence_rejects_invalid_shapes(
+    store: DemoCredentialStore, payload: object
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=TOKEN if str(request.url) == TOKEN_URL else payload)
+
+    async def scenario() -> None:
+        store.save("synthetic-refresh")
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(AppError, match="verificacao"):
+                await SpotifyClient(CLIENT_ID, store, http).playlists_in_library(["syntheticId"])
+
+    run(scenario())
+
+
+def test_library_presence_refreshes_once_on_401(store: DemoCredentialStore) -> None:
+    gets = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal gets
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json=TOKEN)
+        gets += 1
+        return httpx.Response(401) if gets == 1 else httpx.Response(200, json=[True])
+
+    async def scenario() -> None:
+        store.save("synthetic-refresh")
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            result = await SpotifyClient(CLIENT_ID, store, http).playlists_in_library(
+                ["syntheticId"]
+            )
+            assert result == {"syntheticId": True}
+
+    run(scenario())
+    assert gets == 2

@@ -123,7 +123,10 @@ Clique em **Por artista** para abrir uma janela de configuração:
 2. Selecione um ou mais artistas. **Selecionar todos** inclui todos os artistas,
    inclusive os ocultos pela pesquisa; **Limpar seleção** desmarca todos.
 3. Clique em **Salvar**. No modo demo, isso guarda apenas a seleção nesta sessão.
-   No modo real, o envio salva a seleção por conta e cria ou sincroniza as playlists públicas
+   No modo real, primeiro verifica permissões e todos os vínculos envolvidos.
+   Se houver conflito, o envio inteiro é interrompido antes de alterar playlists
+   ou persistir a nova seleção, e uma tela explica os problemas por artista.
+   Sem conflitos, salva a seleção por conta e cria ou sincroniza as playlists públicas
    selecionadas. A sincronização substitui o conteúdo para refletir exatamente as
    músicas elegíveis das Músicas Curtidas; faixas manuais ou removidas da coleção
    também saem da playlist.
@@ -156,6 +159,30 @@ Falhas parciais são mostradas por artista com ID/link quando disponível. Um ti
 durante a criação bloqueia uma nova criação automática até resolução manual; o app
 não repete mutações incertas. A conclusão só é exibida após leitura de volta e
 comparação das faixas.
+
+### Playlists removidas manualmente e conflitos
+
+O **Salvar** verifica se os IDs mapeados continuam em **Sua Biblioteca**, além de
+validar proprietário, visibilidade pública, ausência de colaboração e acesso às
+faixas que serão sincronizadas. Abrir a configuração apenas mostra os IDs locais;
+a verificação remota ocorre no salvamento, sem polling.
+
+Na tela de revisão, o usuário pode voltar à configuração/cancelar, verificar
+novamente e tentar salvar, ou reconectar o Spotify. Quando a ausência na biblioteca
+é confirmada, pode **Confirmar substituições e aplicar seleção**: cria novas playlists
+somente para artistas ausentes que continuaram selecionados; vínculos ausentes
+desmarcados são apenas apagados localmente. O restante da seleção também é aplicado.
+A playlist antiga pode continuar existindo e acessível por link.
+
+Timeout, acesso negado, limite de consultas, respostas inválidas e falhas do Spotify
+não comprovam ausência: preservam o ID e não liberam substituição. Um erro 404 nos
+detalhes, isoladamente, também não autoriza criar outra. Alterações de propriedade,
+privacidade ou colaboração não são revertidas automaticamente.
+
+A confirmação é de uso único, expira em dez minutos e exige nova validação da conta,
+coleção e vínculos. Cancelar, atualizar a coleção ou mudar os vínculos invalida a
+confirmação. A validação não é uma transação no Spotify: mudanças externas ou falhas
+depois do início das mutações ainda podem gerar resultados parciais por artista.
 
 ## Limites desta entrega
 
