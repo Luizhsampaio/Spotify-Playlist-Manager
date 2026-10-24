@@ -44,11 +44,12 @@ validação de origem, não por parâmetros na URL. Sair, desconectar ou reautor
 também limpa os critérios. Não há logs de termos pesquisados ou de dados da biblioteca.
 
 **Playlists Gerenciadas** usa a mesma coleção em memória para identificar artistas
-e apresentar prévias locais por artista selecionado. O modal exibe nomes e contagens
-e a prévia exibe as músicas planejadas; nenhum desses dados é enviado a outro
+e configurar a seleção de artistas. O modal exibe nomes e contagens;
+nenhum desses dados é enviado a outro
 serviço ou a IA. Seleções são enviadas por POST com CSRF, sem metadados na URL,
 e ficam somente na sessão. Atualizar músicas, reautorizar, sair, desconectar ou
-reiniciar invalida as seleções. Esta prévia não cria nem altera playlists no
+reiniciar invalida as seleções. **Salvar** guarda somente a seleção na sessão
+atual, sem persistência em disco. Essa operação não cria nem altera playlists no
 Spotify e não solicita novas permissões. Não há histórico persistente de decisões,
 aprovação de escrita, exportação ou sincronização de playlists nesta etapa.
 

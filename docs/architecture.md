@@ -210,6 +210,10 @@ local `demo-album-cover.svg`; a CSP continua bloqueando imagens externas.
 O menu substitui a opção Playlists desabilitada por **Playlists Gerenciadas**.
 O botão **Por artista** abre um `dialog` nativo, com pesquisa, checkboxes,
 seleção/limpeza de todos, navegação por teclado e retorno de foco ao fechar.
+Ele ocupa um cartão quadrado de até 160 px, sem se estender pela página.
+O cartão usa uma ilustração local de palco/artista ao fundo, com gradiente para
+contraste do título, subtítulo e ação **Configurar**, sem ícone musical.
+Novos cartões são distribuídos lado a lado, com quebra de linha conforme a tela.
 Cancelar ou pressionar Escape não submete a configuração.
 
 `playlist_preview.py` usa a coleção completa, independente dos filtros de músicas.
@@ -219,20 +223,29 @@ são hashes determinísticos da identidade; não representam uma nova autentica�
 O ID da faixa impede duplicatas dentro de cada grupo; faixas sem ID ou artistas
 utilizáveis são excluídas com contagem. A ordem das músicas segue a importação.
 
-`POST /app/playlists/por-artista/previa` exige sessão, origem local, CSRF, revisão
+`POST /app/playlists/por-artista/salvar` exige sessão, origem local, CSRF, revisão
 atual da coleção e artistas pertencentes à lista calculada pelo servidor.
 Não aceita payloads de criação ou nomes arbitrários de playlists. Nenhuma seleção
 é marcada por padrão e nenhum envio aciona escrita. A revisão é rotacionada após
 cada importação completa; o lock de importação serializa a validação da seleção.
 Formulários desatualizados são recusados, sem anunciar sucesso.
 
-A seleção e a prévia são efêmeras na sessão, não um histórico de decisões ou
+A seleção é salva somente na sessão e reaberta pelo cartão **Por artista**, sem
+seção de prévia externa. **Salvar** fecha o modal após a validação do servidor;
+cancelar não altera a seleção anterior.
+O interruptor Ativado/Desativado começa desativado e controla um fieldset nativo:
+campos desativados ficam esmaecidos e não aceitam interação ou navegação de teclado.
+Salvar e Cancelar continuam disponíveis. O estado é salvo na sessão junto à
+seleção, sem ligar um executor ou solicitar escopos de escrita. Desativar preserva
+artistas salvos; ativar exige seleção válida. Cancelar restaura ambos ao reabrir.
+Atualizar a coleção ou reautorizar desativa a configuração junto da seleção.
+A configuração é efêmera na sessão, não um histórico de decisões ou
 aprovação para escrita. Não há correções persistentes nem banco de dados.
 Atualizar músicas, reautorizar ou encerrar a sessão invalida a seleção; falhas
 transitórias preservam a última coleção completa. Busca e seleção não chamam
 a API. O demo não acessa transporte externo ou credenciais.
 
-O resultado é estritamente uma **prévia não criada**. Permanecem somente os
+Salvar guarda apenas os artistas selecionados, sem criar playlists. Permanecem somente os
 escopos de leitura atuais e `SPOTIFY_AI_POLICY_MODE=blocked`.
 Criação real, nomenclatura final, privacidade, tratamento de playlists já existentes,
 confirmação humana, prevenção de duplicatas entre execuções, falhas parciais e

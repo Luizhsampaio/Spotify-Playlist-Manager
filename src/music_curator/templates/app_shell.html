@@ -26,13 +26,9 @@
       <span class="session-badge"><span class="status-dot"></span> Spotify · {{ "simulado" if demo else ("conexão salva" if signed_in else "indisponível") }}</span></header>
     <main id="conteudo" class="dashboard-content">
       {{ feedback() }}
-      {% if active_page != "songs" %}
+      {% if demo and active_page != "songs" %}
       <div class="demo-banner" role="note">{{ symbol("shield") }}
-        {% if demo %}
         <span><strong>Modo protótipo.</strong> Tudo aqui é fictício. Sua conta Spotify não está conectada.</span>
-        {% else %}
-        <span><strong>Aplicação local.</strong> Suas músicas são carregadas ao entrar. Use “Atualizar músicas” para buscar mudanças. Uma conexão salva não comprova que a autorização continua válida no Spotify.</span>
-        {% endif %}
         <a href="/">Ver a Home {{ symbol("arrow") }}</a>
       </div>
       {% endif %}

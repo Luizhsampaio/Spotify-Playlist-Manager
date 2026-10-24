@@ -319,8 +319,8 @@ def test_songs_omits_removed_banners(demo: bool, imported: bool) -> None:
         assert "Atualizar músicas" in page.text
         dashboard = browser.get("/app")
         assert dashboard.status_code == 200
-        assert 'class="demo-banner"' in dashboard.text
-        assert "Ver a Home" in dashboard.text
+        assert ('class="demo-banner"' in dashboard.text) == demo
+        assert ("Ver a Home" in dashboard.text) == demo
 
 
 def test_import_lists_tracks_and_survives_navigation(

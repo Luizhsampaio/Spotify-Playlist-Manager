@@ -109,27 +109,35 @@ Spotify real e ação **Desconectar Spotify**. A conexão pertence à instalaç�
 não a usuários isolados por navegador.
 Encerre a demonstração antes de iniciar a versão real na mesma porta.
 
-## Playlists Gerenciadas — prévia por artista
+## Playlists Gerenciadas — configuração por artista
 
 No menu lateral, **Playlists Gerenciadas** abre as opções de organização.
 Clique em **Por artista** para abrir uma janela de configuração:
 
 1. Pesquise os artistas encontrados na coleção importada de Músicas Curtidas.
+   A configuração começa **Desativada**. Use o interruptor no cabeçalho da janela
+   para deixá-la **Ativada** e liberar os campos; desativada, os campos ficam
+   esmaecidos e bloqueados.
 2. Selecione um ou mais artistas. **Selecionar todos** inclui todos os artistas,
    inclusive os ocultos pela pesquisa; **Limpar seleção** desmarca todos.
-3. Clique em **Visualizar prévia** para conferir uma playlist planejada por artista,
-   com nome sugerido, quantidade e lista de músicas.
-4. Use **Editar seleção** para reabrir a configuração.
+3. Clique em **Salvar** para guardar a seleção na sessão atual.
+4. Clique novamente no cartão **Por artista** para reabrir e editar a configuração.
+   Cancelar ou fechar a janela descarta apenas as alterações ainda não salvas.
+   O estado Ativado/Desativado também é salvo por **Salvar**, apenas na sessão.
+   Desativar mantém os artistas já salvos para reativação; pode ser salvo sem
+   selecionar artistas. Ativar exige pelo menos um artista. Este controle habilita
+   a configuração, mas não inicia execução ou escrita no Spotify.
 
-As colaborações entram na prévia de cada artista participante selecionado.
+As colaborações entram no agrupamento de cada artista participante selecionado.
 Uma mesma faixa não se repete dentro da playlist do artista. Artistas com IDs
-distintos não são mesclados mesmo que tenham o mesmo nome; sem ID, a prévia
+distintos não são mesclados mesmo que tenham o mesmo nome; sem ID, a configuração
 informa que o agrupamento foi feito por nome. Itens sem identificação de faixa
 ou artista utilizável são desconsiderados com aviso.
 
-Os filtros de Minhas Músicas não limitam esta prévia: ela usa a coleção completa
-da sessão. Atualizar a coleção, desconectar ou reautorizar descarta a seleção e
-a prévia; dados antigos enviados por outra aba são recusados.
+Os filtros de Minhas Músicas não limitam esta configuração: ela usa a coleção completa
+da sessão. Atualizar a coleção, desconectar ou reautorizar descarta a seleção
+configurada; dados antigos enviados por outra aba são recusados. Não há seção de
+prévia fora do cartão nem persistência da seleção após encerrar a sessão.
 
 **Esta etapa não cria playlists no Spotify.** Não solicita escopos de escrita,
 não sincroniza playlists nem executa automações. A criação real fica para uma
@@ -195,24 +203,17 @@ O CI também executa o scanner independentemente desse hook local.
 
 ## Atualizações de dependências
 
-A configuração em [`.github/dependabot.yml`](.github/dependabot.yml) monitora
-as dependências Python e as GitHub Actions semanalmente, às segundas-feiras.
-Os PRs de atualização de versões são direcionados à `develop`, com limite de
-três PRs Python e dois de Actions. Versões menores e patches são agrupados por
-ecossistema; versões maiores ficam separadas para revisão. Não há merge automático.
+A configuração de atualizações de versões do Dependabot foi removida desta
+branch. A remoção só altera o agendamento do GitHub quando chegar à branch padrão
+do repositório (`main`).
 
-Como o projeto usa intervalos de versões sem lockfile, as atualizações Python
-podem elevar os limites declarados no `pyproject.toml` (`versioning-strategy: increase`).
-Revise compatibilidade e resultados do CI antes de fazer merge. Essa configuração
-não instala dependências automaticamente no computador e não substitui um lockfile.
+Revise atualizações de dependências Python e GitHub Actions e os resultados do CI
+antes de fazer merge. O projeto usa intervalos de versões sem lockfile; novas
+instalações podem obter versões mais recentes dentro desses intervalos.
 
-Para ativar, o arquivo precisa ser publicado na **branch padrão do repositório**
-(normalmente `main`), por meio de revisão e merge. A configuração somente na
-`develop` ainda não ativa o agendamento.
-Os **Dependabot alerts** e **Dependabot security updates** devem ser habilitados
-nas configurações de segurança do repositório no GitHub; o arquivo YAML não os
-habilita. As atualizações de segurança usam a branch padrão, não a `target-branch`
-definida para os PRs de versões. Os limites acima são para atualizações de versões.
+Os **Dependabot alerts** e **Dependabot security updates** são recursos separados,
+controlados pelas configurações de segurança do repositório no GitHub. A remoção
+do arquivo de agendamento não os desabilita.
 
 ## Validação manual com sua conta
 

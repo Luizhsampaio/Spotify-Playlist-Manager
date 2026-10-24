@@ -52,6 +52,7 @@ class BrowserSession:
     import_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     tracks_revision: str = field(default_factory=lambda: secrets.token_urlsafe(24))
     selected_artists: set[str] = field(default_factory=set)
+    artist_settings_enabled: bool = False
 
 
 def create_app(
@@ -221,10 +222,12 @@ def create_app(
             session.tracks = items
             session.tracks_revision = secrets.token_urlsafe(24)
             session.selected_artists.clear()
+            session.artist_settings_enabled = False
         elif reconnect:
             session.tracks = None
             session.filters = SongFilters()
             session.selected_artists.clear()
+            session.artist_settings_enabled = False
         return True
 
     async def product_page(
@@ -291,6 +294,7 @@ def create_app(
                     if name == "managed_playlists" and signed_in and session.tracks is not None
                     else None,
                     "selected_artists": session.selected_artists if signed_in else set(),
+                    "artist_settings_enabled": signed_in and session.artist_settings_enabled,
                     "tracks_revision": session.tracks_revision,
                     "open_artist_dialog": open_artist_dialog,
                 },
@@ -320,9 +324,9 @@ def create_app(
     async def managed_playlists_page(request: Request) -> Response:
         return await product_page(request, "managed_playlists")
 
-    @app.post("/app/playlists/por-artista/previa")
-    async def artist_playlist_preview(request: Request) -> Response:
-        verified = await verified_form(request, max_fields=10003, max_bytes=1024 * 1024)
+    @app.post("/app/playlists/por-artista/salvar")
+    async def save_artist_playlist_settings(request: Request) -> Response:
+        verified = await verified_form(request, max_fields=10004, max_bytes=1024 * 1024)
         if verified is None:
             return PlainTextResponse(
                 "Sessao ou formulario invalido. Reabra a pagina.", status_code=403
@@ -341,7 +345,7 @@ def create_app(
             message = None
             status = 400
             if session.tracks is None:
-                message = "Carregue suas musicas antes de configurar a previa."
+                message = "Carregue suas musicas antes de salvar a configuracao."
             elif (
                 len(fields.get("revision", [])) != 1
                 or not fields["revision"][0].isascii()
@@ -349,17 +353,22 @@ def create_app(
             ):
                 message = "A colecao foi atualizada. Reabra a configuracao e selecione os artistas."
                 status = 409
-            elif set(fields) - {"csrf", "revision", "artists"}:
+            elif set(fields) - {"csrf", "revision", "artists", "enabled"} or fields.get(
+                "enabled", []
+            ) not in ([], ["true"]):
                 message = "Formulario invalido. Use somente as opcoes apresentadas."
             else:
                 selected = fields.get("artists", [])
+                enabled = fields.get("enabled") == ["true"]
                 available = {group.key for group in artist_playlists(session.tracks).playlists}
-                if not selected:
-                    message = "Selecione pelo menos um artista para visualizar a previa."
+                if enabled and not selected:
+                    message = "Selecione pelo menos um artista para salvar a configuracao."
                 elif len(selected) != len(set(selected)) or not set(selected).issubset(available):
                     message = "Selecao de artistas invalida. Reabra a configuracao."
                 else:
-                    session.selected_artists = set(selected)
+                    if enabled:
+                        session.selected_artists = set(selected)
+                    session.artist_settings_enabled = enabled
         if message:
             return await product_page(
                 request,
@@ -459,6 +468,7 @@ def create_app(
             session.csrf = secrets.token_urlsafe(32)
             session.tracks = None
             session.selected_artists.clear()
+            session.artist_settings_enabled = False
             session.filters = SongFilters()
             session.import_attempted = False
             session.import_message = None
@@ -530,6 +540,7 @@ def create_app(
             for item in sessions.values():
                 item.tracks = None
                 item.selected_artists.clear()
+                item.artist_settings_enabled = False
                 item.filters = SongFilters()
                 item.pending = None
                 item.import_attempted = False

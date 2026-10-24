@@ -322,7 +322,9 @@ def test_real_login_loads_songs_once_and_navigation_reuses_collection(
         dashboard = client.get("/app")
         assert "Spotify · conexão salva" in dashboard.text
         assert "A criação no Spotify ainda não está habilitada" in dashboard.text
-        assert "não comprova" in dashboard.text
+        assert "não comprova" not in dashboard.text
+        assert "<strong>Aplicação local.</strong>" not in dashboard.text
+        assert 'class="demo-banner"' not in dashboard.text
         assert "Conta de demonstração" not in dashboard.text
         assert "Modo protótipo" not in dashboard.text
         assert "Desconectar Spotify" in dashboard.text

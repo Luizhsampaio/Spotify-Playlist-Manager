@@ -13,7 +13,7 @@ from music_curator.spotify import TOKEN_URL
 from music_curator.web import create_app
 
 PAGE = "/app/playlists"
-PREVIEW = "/app/playlists/por-artista/previa"
+PREVIEW = "/app/playlists/por-artista/salvar"
 HEADERS = {"Origin": ORIGIN}
 
 
@@ -35,11 +35,20 @@ def post_preview(browser: TestClient, keys: list[str], html: str | None = None) 
     html = html if html is not None else browser.get(PAGE).text
     response = browser.post(
         PREVIEW,
-        data={"csrf": field(html, "csrf"), "revision": field(html, "revision"), "artists": keys},
+        data={
+            "csrf": field(html, "csrf"),
+            "revision": field(html, "revision"),
+            "artists": keys,
+            "enabled": "true",
+        },
         headers=HEADERS,
     )
     assert isinstance(response, httpx.Response)
     return response
+
+
+def selected_keys(html: str) -> set[str]:
+    return set(re.findall(r'name="artists" value="([^"]+)" checked', html))
 
 
 def test_grouping_includes_collaborations_without_duplicate_tracks() -> None:
@@ -104,7 +113,7 @@ def test_page_and_preview_require_login(browser: TestClient) -> None:
     )
 
 
-def test_demo_page_lists_every_artist_and_previews_selected_only(prototype: TestClient) -> None:
+def test_demo_page_saves_selection_without_external_preview(prototype: TestClient) -> None:
     enter_demo(prototype)
     page = prototype.get(PAGE)
     assert page.status_code == 200
@@ -112,7 +121,9 @@ def test_demo_page_lists_every_artist_and_previews_selected_only(prototype: Test
     assert 'href="/app/playlists" class="active" aria-current="page"' in page.text
     assert 'aria-haspopup="dialog"' in page.text
     assert 'id="artist-playlist-dialog"' in page.text
-    assert "Somente prévia nesta etapa" in page.text
+    assert "Somente prévia nesta etapa" not in page.text
+    assert 'class="managed-policy"' not in page.text
+    assert "A criação real depende de uma" not in page.text
     assert "playlist-preview-card" not in page.text
     groups = artist_playlists(PROTOTYPE_TRACKS).playlists
     assert len(re.findall(r'name="artists" value="', page.text)) == len(groups) == 4
@@ -120,12 +131,25 @@ def test_demo_page_lists_every_artist_and_previews_selected_only(prototype: Test
     assert response.status_code == 200
     assert response.url.path == PAGE
     assert response.url.query == b""
-    assert "2 playlists planejadas" in response.text
-    assert response.text.count('class="playlist-preview-card"') == 2
-    assert "PRÉVIA · NÃO CRIADA" in response.text
-    assert "Horizonte de papel" in response.text
+    assert selected_keys(response.text) == {groups[0].key, groups[1].key}
+    assert "playlist-preview" not in response.text
+    assert "Prévia por artista" not in response.text
+    assert "Visualizar prévia" not in response.text
+    assert "data-artist-save-submit>Salvar</button>" in response.text
     assert prototype.get("/static/managed-playlists.js").status_code == 200
-    assert "2 playlists planejadas" in prototype.get(PAGE).text
+    assert selected_keys(prototype.get(PAGE).text) == {groups[0].key, groups[1].key}
+
+
+def test_artist_card_has_configuration_label_without_music_icon(prototype: TestClient) -> None:
+    enter_demo(prototype)
+    html = prototype.get(PAGE).text
+    card = re.search(r'<button class="managed-option".*?</button>', html, re.DOTALL)
+    assert card
+    assert "<strong>Por artista</strong>" in card[0]
+    assert '<span class="managed-option-action">Configurar</span>' in card[0]
+    assert "<svg" not in card[0]
+    assert "Configurar prévia" not in card[0]
+    assert prototype.get("/static/artist-playlist-background.svg").status_code == 200
 
 
 def test_preview_uses_entire_import_not_song_filters(prototype: TestClient) -> None:
@@ -140,7 +164,7 @@ def test_preview_uses_entire_import_not_song_filters(prototype: TestClient) -> N
     assert page.text.count('name="artists" value="') == 4
     group = artist_playlists(PROTOTYPE_TRACKS).playlists[0]
     assert len(group.tracks) == 2
-    assert "Horizonte de papel" in post_preview(prototype, [group.key]).text
+    assert selected_keys(post_preview(prototype, [group.key]).text) == {group.key}
 
 
 @pytest.mark.parametrize(
@@ -151,6 +175,7 @@ def test_invalid_or_stale_selections_are_explicit(prototype: TestClient, kind: s
     page = prototype.get(PAGE)
     key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
     data: dict[str, str | list[str]] = {
+        "enabled": "true",
         "csrf": field(page.text, "csrf"),
         "revision": field(page.text, "revision"),
     }
@@ -193,26 +218,26 @@ def test_preview_requires_origin_and_csrf(prototype: TestClient) -> None:
     )
 
 
-def test_invalid_selection_does_not_replace_previous_valid_preview(prototype: TestClient) -> None:
+def test_invalid_selection_does_not_replace_saved_configuration(prototype: TestClient) -> None:
     enter_demo(prototype)
     key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
-    assert "1 playlist planejada" in post_preview(prototype, [key]).text
+    assert selected_keys(post_preview(prototype, [key]).text) == {key}
     assert post_preview(prototype, ["forged"]).status_code == 400
-    assert "1 playlist planejada" in prototype.get(PAGE).text
+    assert selected_keys(prototype.get(PAGE).text) == {key}
 
 
 def test_refresh_invalidates_preview_and_selection_is_session_local(prototype: TestClient) -> None:
     enter_demo(prototype)
     keys = [group.key for group in artist_playlists(PROTOTYPE_TRACKS).playlists]
-    assert "4 playlists planejadas" in post_preview(prototype, keys).text
+    assert selected_keys(post_preview(prototype, keys).text) == set(keys)
     with TestClient(prototype.app, base_url=ORIGIN) as other:
         enter_demo(other)
-        assert "playlist-preview-card" not in other.get(PAGE).text
+        assert selected_keys(other.get(PAGE).text) == set()
     page = prototype.get(PAGE)
     prototype.post(
         "/app/musicas/importar", data={"csrf": field(page.text, "csrf")}, headers=HEADERS
     )
-    assert "playlist-preview-card" not in prototype.get(PAGE).text
+    assert selected_keys(prototype.get(PAGE).text) == set()
     assert post_preview(prototype, keys, page.text).status_code == 409
 
 
@@ -240,7 +265,8 @@ def test_real_mode_preview_makes_no_writes_or_additional_spotify_calls() -> None
         keys = [group.key for group in artist_playlists(PROTOTYPE_TRACKS).playlists]
         preview = post_preview(browser, keys, page.text)
         assert preview.status_code == 200
-        assert "4 playlists planejadas" in preview.text
+        assert selected_keys(preview.text) == set(keys)
+        assert "playlist-preview" not in preview.text
         assert calls == []
         assert "synthetic-access" not in preview.text
         assert "synthetic-refresh" not in preview.text
@@ -293,3 +319,69 @@ def test_expired_preview_cannot_be_submitted(
     monkeypatch.setattr("music_curator.web.time.monotonic", lambda: now + 9 * 60 * 60)
     keys = [group.key for group in artist_playlists(PROTOTYPE_TRACKS).playlists]
     assert post_preview(prototype, keys, page.text).status_code == 403
+
+
+def is_enabled(html: str) -> bool:
+    toggle = re.search(r"<input[^>]+data-artist-enabled[^>]*>", html)
+    assert toggle
+    return "checked" in toggle[0]
+
+
+def test_configuration_starts_disabled_and_can_save_inactive_without_artists(
+    prototype: TestClient,
+) -> None:
+    enter_demo(prototype)
+    page = prototype.get(PAGE)
+    assert not is_enabled(page.text)
+    assert "data-artist-settings-fields disabled" in page.text
+    response = prototype.post(
+        PREVIEW,
+        data={"csrf": field(page.text, "csrf"), "revision": field(page.text, "revision")},
+        headers=HEADERS,
+    )
+    assert response.status_code == 200
+    assert not is_enabled(response.text)
+    assert selected_keys(response.text) == set()
+
+
+def test_disable_preserves_selection_and_reenable_restores_editing(prototype: TestClient) -> None:
+    enter_demo(prototype)
+    key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
+    page = post_preview(prototype, [key])
+    assert is_enabled(page.text)
+    assert "data-artist-settings-fields disabled" not in page.text
+    page = prototype.post(
+        PREVIEW,
+        data={"csrf": field(page.text, "csrf"), "revision": field(page.text, "revision")},
+        headers=HEADERS,
+    )
+    assert page.status_code == 200
+    assert not is_enabled(page.text)
+    assert selected_keys(page.text) == {key}
+    assert "data-artist-settings-fields disabled" in page.text
+    page = post_preview(prototype, [key])
+    assert is_enabled(page.text)
+    assert selected_keys(page.text) == {key}
+    assert is_enabled(prototype.get(PAGE).text)
+
+
+@pytest.mark.parametrize("value", ["false", "yes", "", ["true", "true"]])
+def test_invalid_enabled_value_does_not_change_settings(
+    prototype: TestClient,
+    value: str | list[str],
+) -> None:
+    enter_demo(prototype)
+    key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
+    page = post_preview(prototype, [key])
+    response = prototype.post(
+        PREVIEW,
+        data={
+            "csrf": field(page.text, "csrf"),
+            "revision": field(page.text, "revision"),
+            "enabled": value,
+        },
+        headers=HEADERS,
+    )
+    assert response.status_code == 400
+    assert is_enabled(response.text)
+    assert selected_keys(response.text) == {key}
