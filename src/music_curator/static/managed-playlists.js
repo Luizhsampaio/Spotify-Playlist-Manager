@@ -4,15 +4,12 @@ if (artistDialog) {
   const artistSearch = artistDialog.querySelector("[data-artist-search]");
   const artistOptions = Array.from(artistDialog.querySelectorAll("[data-artist-option]"));
   const artistForm = artistDialog.querySelector("form");
-  const enabledToggle = artistDialog.querySelector("[data-artist-enabled]");
-  const settingsFields = artistDialog.querySelector("[data-artist-settings-fields]");
   let lastOpener = document.querySelector("[data-open-artist-dialog]");
 
   function updateSelection() {
     const count = artistForm.querySelectorAll('input[name="artists"]:checked').length;
     artistDialog.querySelector("[data-artist-selection-count]").textContent =
       `${count} ${count === 1 ? "artista selecionado" : "artistas selecionados"}`;
-    settingsFields.disabled = !enabledToggle.checked;
   }
 
   function searchArtists() {
@@ -59,7 +56,6 @@ if (artistDialog) {
     if (event.key === "Enter") event.preventDefault();
   });
   artistForm.addEventListener("change", updateSelection);
-  enabledToggle.addEventListener("change", updateSelection);
   artistForm.addEventListener("submit", () => {
     const submit = artistDialog.querySelector("[data-artist-save-submit]");
     submit.disabled = true;

@@ -41,11 +41,20 @@ class AccountRegistry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     artists: dict[str, ManagedPlaylistRecord] = Field(default_factory=dict)
+    selected_artist_keys: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def artist_keys_match_records(self) -> "AccountRegistry":
+    def validate_artist_keys(self) -> "AccountRegistry":
         if any(key != record.artist_key for key, record in self.artists.items()):
             raise ValueError("Artist registry keys must match record identities")
+        if len(self.selected_artist_keys) != len(set(self.selected_artist_keys)):
+            raise ValueError("Selected artist keys must be unique")
+        if any(
+            not len(key) == 64 or any(char not in "0123456789abcdef" for char in key)
+            for key in self.selected_artist_keys
+        ):
+            raise ValueError("Selected artist keys are invalid")
+        self.selected_artist_keys.sort()
         return self
 
 
@@ -74,6 +83,22 @@ class ManagedPlaylistRegistry:
         account = document.accounts.get(account_id)
         return dict(account.artists) if account is not None else {}
 
+    def selection_for(self, account_id: str) -> set[str]:
+        document = self._load()
+        account = document.accounts.get(account_id)
+        return set(account.selected_artist_keys) if account is not None else set()
+
+    def save_selection(self, account_id: str, artist_keys: set[str]) -> None:
+        document = self._load()
+        account = document.accounts.setdefault(account_id, AccountRegistry())
+        account.selected_artist_keys = sorted(artist_keys)
+        try:
+            account = AccountRegistry.model_validate(account.model_dump())
+        except ValidationError as exc:
+            raise AppError("A selecao de artistas nao e valida.") from exc
+        document.accounts[account_id] = account
+        self._save(document)
+
     def save_record(self, account_id: str, record: ManagedPlaylistRecord) -> None:
         document = self._load()
         account = document.accounts.setdefault(account_id, AccountRegistry())
@@ -86,7 +111,7 @@ class ManagedPlaylistRegistry:
         if account is None or artist_key not in account.artists:
             return
         del account.artists[artist_key]
-        if not account.artists:
+        if not account.artists and not account.selected_artist_keys:
             del document.accounts[account_id]
         self._save(document)
 

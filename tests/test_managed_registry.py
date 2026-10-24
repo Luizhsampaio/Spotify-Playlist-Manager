@@ -97,3 +97,39 @@ def test_deleting_one_record_preserves_other_accounts(tmp_path: Path) -> None:
 
     assert set(registry.records_for("accountOne")) == {"b" * 64}
     assert KEY in registry.records_for("accountTwo")
+
+
+def test_selection_is_persisted_per_account_and_survives_record_deletion(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "managed.json"
+    registry = ManagedPlaylistRegistry(path)
+    other_key = "b" * 64
+    registry.save_selection("accountOne", {other_key, KEY})
+    registry.save_selection("accountTwo", {other_key})
+    registry.save_record("accountOne", record())
+
+    registry.delete_record("accountOne", KEY)
+
+    reopened = ManagedPlaylistRegistry(path)
+    assert reopened.selection_for("accountOne") == {KEY, other_key}
+    assert reopened.selection_for("accountTwo") == {other_key}
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert document["accounts"]["accountOne"]["selected_artist_keys"] == [KEY, other_key]
+
+
+def test_old_registry_defaults_to_empty_selection_and_invalid_keys_are_rejected(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "managed.json"
+    path.write_text(
+        json.dumps({"version": 1, "accounts": {"accountOne": {"artists": {}}}}),
+        encoding="utf-8",
+    )
+    registry = ManagedPlaylistRegistry(path)
+    assert registry.selection_for("accountOne") == set()
+
+    with pytest.raises(AppError, match="selecao"):
+        registry.save_selection("accountOne", {"invalid"})
+
+    assert registry.selection_for("accountOne") == set()

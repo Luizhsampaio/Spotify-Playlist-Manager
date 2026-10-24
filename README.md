@@ -117,22 +117,23 @@ No menu lateral, **Playlists Gerenciadas** abre as opções de organização.
 Clique em **Por artista** para abrir uma janela de configuração:
 
 1. Pesquise os artistas encontrados na coleção importada de Músicas Curtidas.
-   A configuração começa **Desativada**. Use o interruptor no cabeçalho da janela
-   para deixá-la **Ativada** e liberar os campos; desativada, os campos ficam
-   esmaecidos e bloqueados.
+   A seleção já salva para a conta é marcada ao abrir; uma configuração nova
+   começa sem artistas selecionados.
 2. Selecione um ou mais artistas. **Selecionar todos** inclui todos os artistas,
    inclusive os ocultos pela pesquisa; **Limpar seleção** desmarca todos.
 3. Clique em **Salvar**. No modo demo, isso guarda apenas a seleção nesta sessão.
-   No modo real, com **Ativado**, o envio cria ou sincroniza as playlists públicas
+   No modo real, o envio salva a seleção por conta e cria ou sincroniza as playlists públicas
    selecionadas. A sincronização substitui o conteúdo para refletir exatamente as
    músicas elegíveis das Músicas Curtidas; faixas manuais ou removidas da coleção
    também saem da playlist.
 4. Clique novamente no cartão **Por artista** para reabrir e editar a configuração.
    Cancelar ou fechar a janela descarta apenas as alterações ainda não salvas.
-   O estado Ativado/Desativado também é salvo por **Salvar**, apenas na sessão.
-   Desativar não faz mutações Spotify e mantém os artistas selecionados na sessão.
-   Ativado com seleção vazia remove as playlists gerenciadas de **Sua Biblioteca**;
-   isso não as exclui e elas podem continuar públicas ou acessíveis por link.
+   A seleção real persiste entre sessões para a mesma conta. Cada salvamento
+   aplica a seleção: artistas desmarcados saem de **Sua Biblioteca** e, após
+   confirmação, seus IDs são apagados do registro local; a playlist não é excluída
+   e pode continuar pública ou acessível por link. Se selecionado novamente,
+   uma nova playlist será criada. Uma seleção vazia remove todas as playlists
+   gerenciadas da biblioteca.
 
 As colaborações entram no agrupamento de cada artista participante selecionado.
 Uma mesma faixa não se repete dentro da playlist do artista. Artistas com IDs
@@ -141,10 +142,10 @@ informa que o agrupamento foi feito por nome. Itens sem identificação de faixa
 ou artista utilizável são desconsiderados com aviso.
 
 Os filtros de Minhas Músicas não limitam a sincronização: ela usa a coleção completa
-da sessão. Atualizar a coleção, desconectar ou reautorizar descarta a seleção
-configurada; dados antigos enviados por outra aba são recusados. O registro local
-`.local-data/spotify/managed-playlists.json` guarda IDs e estados por conta/artista,
-sem conteúdo de músicas, e permanece ao desconectar.
+da sessão. Atualizar a coleção não descarta a seleção; dados antigos enviados por
+outra aba são recusados. O registro local
+`.local-data/spotify/managed-playlists.json` guarda seleção, IDs e estados por
+conta/artista, sem conteúdo de músicas, e permanece ao desconectar.
 O modo demo oferece somente a configuração local com músicas e artistas fictícios;
 ele nunca chama endpoints Spotify de escrita.
 

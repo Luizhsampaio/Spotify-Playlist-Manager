@@ -114,19 +114,7 @@ a.track-title:hover { text-decoration: underline; }
 .playlist-dialog { width: min(680px, calc(100% - 32px)); max-height: calc(100dvh - 40px); padding: 28px; border: 1px solid var(--line); border-radius: 16px; color: var(--ink); background: var(--paper); box-shadow: 0 20px 70px #13271f40; overflow-y: auto; }
 .playlist-dialog::backdrop { background: #13271f80; }
 .playlist-dialog-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; }
-.artist-dialog-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.artist-settings-toggle { display: flex; align-items: center; gap: 6px; position: relative; cursor: pointer; font-size: 11px; color: var(--muted); padding: 6px 0; }
-.artist-settings-toggle input { position: absolute; width: 100%; height: 100%; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
-.artist-toggle-indicator { width: 28px; height: 16px; border-radius: 16px; background: #929b91; padding: 2px; }
-.artist-toggle-indicator::after { content: ""; display: block; width: 12px; height: 12px; border-radius: 50%; background: white; }
-.artist-settings-toggle input:checked ~ .artist-toggle-indicator { background: var(--green); }
-.artist-settings-toggle input:checked ~ .artist-toggle-indicator::after { transform: translateX(12px); }
-.artist-settings-toggle input:focus-visible ~ .artist-toggle-indicator { outline: 3px solid #768c39; outline-offset: 3px; }
-.artist-toggle-on, .artist-settings-toggle input:checked ~ .artist-toggle-off { display: none; }
-.artist-settings-toggle input:checked ~ .artist-toggle-on { display: inline; color: var(--green); }
 .artist-settings-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
-.artist-settings-fields:disabled { opacity: 0.4; }
-.artist-settings-fields:disabled label, .artist-settings-fields:disabled input, .artist-settings-fields:disabled button { cursor: not-allowed; }
 .playlist-dialog h2 { font-size: 25px; line-height: 1.25; margin: 8px 0 15px; }
 .playlist-dialog > p { font-size: 12px; color: var(--muted); }
 .dialog-close { border: 0; background: transparent; color: var(--ink); padding: 0 8px; font-size: 26px; }
@@ -157,7 +145,6 @@ a.track-title:hover { text-decoration: underline; }
 .playlist-dialog-footer .button { font-size: 12px; padding-inline: 15px; }
 @media (max-width: 440px) {
   .playlist-dialog-heading { flex-wrap: wrap; }
-  .artist-dialog-actions { margin-left: auto; }
   .playlist-dialog { padding: 18px; }
   .playlist-dialog h2 { font-size: 22px; }
 }

@@ -28,20 +28,13 @@
 <dialog id="artist-playlist-dialog" class="playlist-dialog" aria-labelledby="artist-dialog-title" aria-describedby="artist-dialog-description" {% if open_artist_dialog %}data-open-on-load{% endif %}>
   <div class="playlist-dialog-heading">
     <div><span class="eyebrow">CONFIGURAÇÃO</span><h2 id="artist-dialog-title">Playlist por artista</h2></div>
-    <div class="artist-dialog-actions">
-      <label class="artist-settings-toggle">
-        <input type="checkbox" role="switch" name="enabled" value="true" form="artist-settings-form" aria-label="Ativar configuração por artista" data-artist-enabled {% if artist_settings_enabled %}checked{% endif %} autofocus>
-        <span class="artist-toggle-indicator" aria-hidden="true"></span>
-        <span class="artist-toggle-on">Ativado</span><span class="artist-toggle-off">Desativado</span>
-      </label>
-      <button type="button" class="dialog-close" data-close-artist-dialog aria-label="Fechar configuração">×</button>
-    </div>
+    <button type="button" class="dialog-close" data-close-artist-dialog aria-label="Fechar configuração" autofocus>×</button>
   </div>
   {% if open_artist_dialog %}{{ feedback() }}{% endif %}
   <form id="artist-settings-form" method="post" action="/app/playlists/por-artista/salvar">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="revision" value="{{ tracks_revision }}">
-    <fieldset class="artist-settings-fields" data-artist-settings-fields {% if not artist_settings_enabled %}disabled{% endif %}>
+    <fieldset class="artist-settings-fields">
     <legend class="visually-hidden">Configuração dos artistas</legend>
   <p id="artist-dialog-description">Selecione os artistas para esta configuração.
     A fonte é toda a sua coleção de Músicas Curtidas, independentemente dos filtros de Minhas Músicas.</p>
@@ -49,10 +42,10 @@
     {% if demo %}
     Modo demonstração: Salvar guarda somente a seleção nesta sessão e não altera o Spotify.
     {% else %}
-    Ao salvar com Ativado, cada playlist será pública e espelhará exatamente as músicas elegíveis
+    Ao salvar, a seleção fica salva para esta conta e cada playlist será pública e espelhará exatamente as músicas elegíveis
     da sua coleção. Faixas adicionadas manualmente ou removidas das Músicas Curtidas também serão
-    removidas da playlist. Artistas desmarcados saem de Sua Biblioteca, mas a playlist não é
-    excluída e pode continuar pública ou acessível por link.
+    removidas da playlist. Artistas desmarcados saem de Sua Biblioteca e seu ID local é apagado,
+    mas a playlist não é excluída e pode continuar pública ou acessível por link.
     {% endif %}
     Colaborações entram na playlist de cada artista participante selecionado; uma mesma música
     não se repete dentro da mesma playlist.

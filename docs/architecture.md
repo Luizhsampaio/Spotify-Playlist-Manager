@@ -229,28 +229,24 @@ utilizáveis são excluídas com contagem. A ordem das músicas segue a importa�
 
 `POST /app/playlists/por-artista/salvar` exige sessão, origem local, CSRF, revisão
 atual da coleção e artistas pertencentes à lista calculada pelo servidor.
-Não aceita nomes arbitrários de playlists. Nenhuma seleção é marcada por padrão.
+Não aceita nomes arbitrários de playlists. Uma configuração nova começa sem
+artistas selecionados; a configuração salva é carregada por conta.
 A revisão é rotacionada após
 cada importação completa; o lock de importação serializa a validação da seleção.
 Formulários desatualizados são recusados, sem anunciar sucesso.
 
-A seleção é salva somente na sessão e reaberta pelo cartão **Por artista**, sem
-seção de prévia externa. **Salvar** fecha o modal após a validação do servidor;
-cancelar não altera a seleção anterior.
-O interruptor Ativado/Desativado começa desativado e controla um fieldset nativo:
-campos desativados ficam esmaecidos e não aceitam interação ou navegação de teclado.
-Salvar e Cancelar continuam disponíveis. O estado e a seleção permanecem na sessão.
-Desativar não faz mutações e preserva a seleção; ativar com seleção vazia permite
-remover os registros gerenciados de Sua Biblioteca. Cancelar restaura ambos ao reabrir.
-Atualizar a coleção ou reautorizar desativa a configuração junto da seleção.
-A seleção é efêmera na sessão, não um histórico de decisões. O registro de playlists
-é separado e persistente em `.local-data/spotify/managed-playlists.json`, particionado
-pelo `account_id` retornado por `GET /v1/me`, e não contém faixas da biblioteca.
-Atualizar músicas, reautorizar ou encerrar a sessão invalida a seleção; falhas
-transitórias preservam a última coleção completa. Busca e seleção não chamam
-a API. O demo não acessa transporte externo ou credenciais.
+A seleção é reaberta pelo cartão **Por artista**, sem seção de prévia externa.
+Cancelar não altera a configuração anterior; **Salvar** persiste a seleção para
+a conta antes de reconciliar playlists. Não há interruptor global: cada salvamento
+aplica a seleção atual, inclusive uma seleção vazia. A configuração persistente
+está no registro `.local-data/spotify/managed-playlists.json`, particionado pelo
+`account_id` retornado por `GET /v1/me`; contém as chaves de artistas selecionados
+e IDs/estados das playlists, nunca faixas da biblioteca. A seleção sobrevive a
+sessões e navegadores da mesma conta. Atualizar músicas não a invalida. Busca e
+seleção não chamam a API. O demo não acessa transporte externo ou credenciais e
+mantém a seleção somente na sessão.
 
-No modo real, **Salvar** com Ativado usa `playlist-modify-public`,
+No modo real, **Salvar** usa `playlist-modify-public`,
 `user-library-modify` e `user-read-private`. Antes da criação, persiste um estado
 pendente; após a resposta, registra imediatamente o ID e proprietário. Playlists
 existentes só são alteradas após validar ID, proprietário registrado, visibilidade
@@ -258,8 +254,12 @@ pública e ausência de colaboração. O conteúdo é substituído por URIs eleg
 Músicas Curtidas (primeiro lote de até 100 via PUT, lotes restantes via POST), lido
 de volta e comparado exatamente antes de informar conclusão.
 
-Desmarcar um artista remove a playlist apenas de Sua Biblioteca; não há exclusão
-permanente. Reativar reutiliza o ID persistido. Estados incertos de criação ou
-biblioteca bloqueiam retry automático; falhas e resultados parciais aparecem por
-artista, sem sucesso integral não verificado. Um lock global serializa envios.
+Desmarcar um artista remove a playlist apenas de Sua Biblioteca; após confirmação,
+o registro local do ID é apagado. A playlist pública não é excluída e pode ficar
+sem vínculo na biblioteca. Se o artista for selecionado novamente, uma playlist
+nova é criada. Registros legados no estado `removed` também são descartados antes
+de criar. Resultados incertos de remoção preservam o ID local e bloqueiam nova
+criação automática; estados incertos de criação também bloqueiam retry. Falhas e
+resultados parciais aparecem por artista, sem sucesso integral não verificado.
+Um lock global serializa envios.
 `SPOTIFY_AI_POLICY_MODE=blocked` permanece inalterado.

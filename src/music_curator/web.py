@@ -61,7 +61,6 @@ class BrowserSession:
     import_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     tracks_revision: str = field(default_factory=lambda: secrets.token_urlsafe(24))
     selected_artists: set[str] = field(default_factory=set)
-    artist_settings_enabled: bool = False
     playlist_results: list[PlaylistMutationResult] = field(default_factory=list)
 
 
@@ -217,45 +216,6 @@ async def _manage_selected_artist(
                     f"O Spotify nao confirmou o nome esperado. {exc}",
                     playlist_id,
                 )
-    if record.state == "removed":
-        uncertain = _record_with_state(record, "uncertain")
-        registry.save_record(account_id, uncertain)
-        try:
-            await client.save_playlist_to_library(playlist_id)
-        except MutationOutcomeUnknown:
-            return _playlist_result(
-                artist_key,
-                group.name,
-                "partial",
-                "O Spotify nao confirmou se a playlist voltou para Sua Biblioteca. "
-                "Verifique antes de tentar novamente.",
-                playlist_id,
-            )
-        except AppError as exc:
-            try:
-                registry.save_record(account_id, record)
-            except AppError as registry_error:
-                return _playlist_result(
-                    artist_key,
-                    group.name,
-                    "partial",
-                    f"{exc} O estado local tambem nao pode ser restaurado: {registry_error}",
-                    playlist_id,
-                )
-            return _playlist_result(artist_key, group.name, "failed", str(exc), playlist_id)
-        record = _record_with_state(record, "created")
-        try:
-            registry.save_record(account_id, record)
-        except AppError as exc:
-            return _playlist_result(
-                artist_key,
-                group.name,
-                "partial",
-                "A playlist voltou a biblioteca, mas o estado local nao pode ser confirmado. "
-                f"{exc}",
-                playlist_id,
-            )
-
     expected_ids = [track.id for track in group.tracks]
     if any(track_id is None for track_id in expected_ids):
         raise AppError("Uma faixa selecionada nao possui ID Spotify valido.")
@@ -320,6 +280,7 @@ async def _remove_deselected_artist(
     record: ManagedPlaylistRecord,
 ) -> PlaylistMutationResult | None:
     if record.state == "removed":
+        registry.delete_record(account_id, record.artist_key)
         return None
     if record.state in {"pending_create", "creation_uncertain", "uncertain"}:
         return _playlist_result(
@@ -366,15 +327,14 @@ async def _remove_deselected_artist(
         return _playlist_result(
             record.artist_key, record.artist_name, "failed", str(exc), playlist_id
         )
-    removed = _record_with_state(record, "removed")
     try:
-        registry.save_record(account_id, removed)
+        registry.delete_record(account_id, record.artist_key)
     except AppError as exc:
         return _playlist_result(
             record.artist_key,
             record.artist_name,
             "partial",
-            f"A playlist saiu da biblioteca, mas o estado local nao pode ser confirmado. {exc}",
+            f"A playlist saiu da biblioteca, mas o ID local nao pode ser apagado. {exc}",
             playlist_id,
         )
     return _playlist_result(
@@ -559,13 +519,9 @@ def create_app(
         if status == 200:
             session.tracks = items
             session.tracks_revision = secrets.token_urlsafe(24)
-            session.selected_artists.clear()
-            session.artist_settings_enabled = False
         elif reconnect:
             session.tracks = None
             session.filters = SongFilters()
-            session.selected_artists.clear()
-            session.artist_settings_enabled = False
         return True
 
     async def product_page(
@@ -605,6 +561,12 @@ def create_app(
             reconnect = session.import_reconnect
             import_failed = True
             name = "songs"
+        if name == "managed_playlists" and signed_in and status_code == 200 and not demo:
+            try:
+                account_id = await client.current_account_id()
+                session.selected_artists = registry.selection_for(account_id)
+            except AppError as exc:
+                message, error, status_code = str(exc), True, 503
         if name in PRODUCT_PAGES and not signed_in and status_code == 200:
             response: Response = RedirectResponse("/entrar", status_code=303)
         elif name == "login" and signed_in and not message:
@@ -632,7 +594,6 @@ def create_app(
                     if name == "managed_playlists" and signed_in and session.tracks is not None
                     else None,
                     "selected_artists": session.selected_artists if signed_in else set(),
-                    "artist_settings_enabled": signed_in and session.artist_settings_enabled,
                     "tracks_revision": session.tracks_revision,
                     "open_artist_dialog": open_artist_dialog,
                     "playlist_results": session.playlist_results,
@@ -692,90 +653,98 @@ def create_app(
             ):
                 message = "A colecao foi atualizada. Reabra a configuracao e selecione os artistas."
                 status = 409
-            elif set(fields) - {"csrf", "revision", "artists", "enabled"} or fields.get(
-                "enabled", []
-            ) not in ([], ["true"]):
+            elif set(fields) - {"csrf", "revision", "artists"}:
                 message = "Formulario invalido. Use somente as opcoes apresentadas."
             else:
                 selected = fields.get("artists", [])
-                enabled = fields.get("enabled") == ["true"]
                 available = {group.key for group in artist_playlists(session.tracks).playlists}
                 if len(selected) != len(set(selected)) or not set(selected).issubset(available):
                     message = "Selecao de artistas invalida. Reabra a configuracao."
                 else:
-                    if enabled:
-                        groups = artist_playlists(session.tracks).playlists
-                        selected_keys = set(selected)
-                        if demo:
-                            session.selected_artists = selected_keys
-                            session.playlist_results = []
-                        else:
-                            try:
-                                async with playlist_operation_lock:
-                                    account_id = await client.current_account_id()
-                                    records = registry.records_for(account_id)
-                                    selected_groups = [
-                                        group for group in groups if group.key in selected_keys
-                                    ]
-                                    results: list[PlaylistMutationResult] = []
-                                    for group in selected_groups:
+                    groups = artist_playlists(session.tracks).playlists
+                    selected_keys = set(selected)
+                    if demo:
+                        session.selected_artists = selected_keys
+                        session.playlist_results = []
+                    else:
+                        try:
+                            async with playlist_operation_lock:
+                                account_id = await client.current_account_id()
+                                registry.save_selection(account_id, selected_keys)
+                                records = registry.records_for(account_id)
+                                selected_groups = [
+                                    group for group in groups if group.key in selected_keys
+                                ]
+                                results: list[PlaylistMutationResult] = []
+                                for group in selected_groups:
+                                    record = records.get(group.key)
+                                    if record is not None and record.state == "removed":
                                         try:
-                                            results.append(
-                                                await _manage_selected_artist(
-                                                    client,
-                                                    registry,
-                                                    account_id,
-                                                    group.key,
-                                                    group,
-                                                    records.get(group.key),
-                                                )
-                                            )
+                                            registry.delete_record(account_id, group.key)
                                         except AppError as exc:
-                                            record = records.get(group.key)
                                             results.append(
                                                 _playlist_result(
                                                     group.key,
                                                     group.name,
-                                                    "partial"
-                                                    if isinstance(exc, MutationOutcomeUnknown)
-                                                    else "failed",
+                                                    "failed",
                                                     str(exc),
-                                                    record.playlist_id if record else None,
+                                                    record.playlist_id,
                                                 )
                                             )
-                                    for artist_key, record in records.items():
-                                        if artist_key in selected_keys:
                                             continue
-                                        try:
-                                            result = await _remove_deselected_artist(
-                                                client, registry, account_id, record
+                                        record = None
+                                    try:
+                                        results.append(
+                                            await _manage_selected_artist(
+                                                client,
+                                                registry,
+                                                account_id,
+                                                group.key,
+                                                group,
+                                                record,
                                             )
-                                        except AppError as exc:
-                                            result = _playlist_result(
-                                                artist_key,
-                                                record.artist_name,
+                                        )
+                                    except AppError as exc:
+                                        results.append(
+                                            _playlist_result(
+                                                group.key,
+                                                group.name,
                                                 "partial"
                                                 if isinstance(exc, MutationOutcomeUnknown)
                                                 else "failed",
                                                 str(exc),
-                                                record.playlist_id,
+                                                record.playlist_id if record else None,
                                             )
-                                        if result is not None:
-                                            results.append(result)
-                                    session.selected_artists = selected_keys
-                                    session.playlist_results = results
-                                    if not results:
-                                        session.message = (
-                                            "Nao havia playlists gerenciadas para alterar."
                                         )
-                                        session.message_error = False
-                            except AppError as exc:
-                                message = str(exc)
-                                status = 502
-                    else:
-                        session.playlist_results = []
-                    if message is None:
-                        session.artist_settings_enabled = enabled
+                                for artist_key, record in records.items():
+                                    if artist_key in selected_keys:
+                                        continue
+                                    try:
+                                        result = await _remove_deselected_artist(
+                                            client, registry, account_id, record
+                                        )
+                                    except AppError as exc:
+                                        result = _playlist_result(
+                                            artist_key,
+                                            record.artist_name,
+                                            "partial"
+                                            if isinstance(exc, MutationOutcomeUnknown)
+                                            else "failed",
+                                            str(exc),
+                                            record.playlist_id,
+                                        )
+                                    if result is not None:
+                                        results.append(result)
+                                session.selected_artists = selected_keys
+                                session.playlist_results = results
+                                if not results:
+                                    session.message = (
+                                        "Nao havia playlists gerenciadas para alterar."
+                                    )
+                                    session.message_error = False
+                        except AppError as exc:
+                            message = str(exc)
+                            status = 502
         if message:
             return await product_page(
                 request,
@@ -875,7 +844,6 @@ def create_app(
             session.csrf = secrets.token_urlsafe(32)
             session.tracks = None
             session.selected_artists.clear()
-            session.artist_settings_enabled = False
             session.filters = SongFilters()
             session.import_attempted = False
             session.import_message = None
@@ -947,7 +915,6 @@ def create_app(
             for item in sessions.values():
                 item.tracks = None
                 item.selected_artists.clear()
-                item.artist_settings_enabled = False
                 item.filters = SongFilters()
                 item.pending = None
                 item.import_attempted = False

@@ -7,9 +7,9 @@
   separados por Client ID.
 - `.local-data/spotify/managed-playlists.json`: registro local ignorado pelo Git,
   particionado pelo ID imutável da conta Spotify. Guarda chave/ID/nome do artista,
-  ID e proprietário da playlist e estado da operação; não guarda músicas, tokens,
-  nome de perfil ou email. O registro permanece ao desconectar para permitir
-  reutilizar a playlist na mesma conta.
+  seleção por conta, ID e proprietário da playlist e estado da operação; não
+  guarda músicas, tokens, nome de perfil ou email. O registro permanece ao
+  desconectar para manter a configuração da mesma conta.
 - Memória do processo: access token, verificador PKCE temporário, sessão e respostas
   de playlists durante a consulta; Músicas Curtidas importadas na sessão do navegador.
 - Navegador: cookie de sessão opaco, HttpOnly e SameSite=Lax, com duração de oito
@@ -53,11 +53,14 @@ também limpa os critérios. Não há logs de termos pesquisados ou de dados da 
 e configurar a seleção de artistas. O modal exibe nomes e contagens;
 fora do envio explícito descrito abaixo, esses dados não são enviados a outro
 serviço ou a IA. Seleções são enviadas por POST com CSRF, sem metadados na URL,
-e ficam somente na sessão. Atualizar músicas, reautorizar, sair, desconectar ou
-reiniciar invalida as seleções. No modo demo, **Salvar** guarda somente a seleção
-na sessão e não acessa endpoints Spotify de escrita.
+e, no modo real, ficam no registro local particionado por conta para persistir
+entre sessões e navegadores. Atualizar músicas não invalida a seleção. No modo
+demo, **Salvar** guarda somente a seleção na sessão e não acessa endpoints
+Spotify de escrita.
 
-No modo real, **Salvar** com Ativado é o consentimento explícito para o envio atual.
+No modo real, cada clique em **Salvar** é o consentimento explícito para aplicar a
+seleção atual; não há interruptor global. O app salva a seleção por conta antes
+das mutações.
 O app consulta somente o ID imutável retornado por `GET /v1/me` (`user-read-private`)
 para isolar o registro local; não solicita nem guarda email ou nome de perfil.
 Para artistas selecionados, a playlist pública registrada é sincronizada para
@@ -66,8 +69,9 @@ faixas adicionadas manualmente ou que já não estejam nas Músicas Curtidas. A
 conclusão integral só é apresentada após ler e comparar todos os IDs de faixa.
 Artistas desmarcados têm a playlist removida apenas de **Sua Biblioteca** por
 `user-library-modify`; a playlist pública não é excluída e pode continuar acessível
-por link. Selecioná-la novamente reutiliza o ID registrado e a salva de volta na
-biblioteca.
+por link, mas o ID local é apagado após confirmação. Selecionar o artista novamente
+cria uma playlist nova. Se a remoção tiver resultado incerto, o ID é mantido
+temporariamente e impede criação automática até resolução segura.
 
 As mutações usam `playlist-modify-public` e `user-library-modify`. Timeout ou
 resultado incerto não é repetido automaticamente; o status por artista e o ID/link
