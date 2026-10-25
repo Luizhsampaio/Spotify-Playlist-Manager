@@ -1,3 +1,16 @@
+for (const image of document.querySelectorAll("img[data-playlist-cover]")) {
+  image.addEventListener("error", () => image.remove(), { once: true });
+}
+
+for (const opener of document.querySelectorAll("[data-open-playlist-notes]")) {
+  const dialog = document.getElementById(opener.dataset.openPlaylistNotes);
+  if (!dialog) continue;
+  opener.addEventListener("click", () => dialog.showModal());
+  dialog.querySelector("[data-close-playlist-notes]")
+    .addEventListener("click", () => dialog.close());
+  dialog.addEventListener("close", () => opener.focus({ preventScroll: true }));
+}
+
 const artistDialog = document.querySelector("#artist-playlist-dialog");
 
 if (artistDialog) {

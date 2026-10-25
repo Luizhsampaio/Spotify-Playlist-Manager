@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -66,6 +67,57 @@ def test_registry_preserves_pending_creation_without_an_id(tmp_path: Path) -> No
     registry.save_record("accountOne", pending)
 
     assert registry.records_for("accountOne")[KEY].state == "creation_uncertain"
+
+
+def test_registry_appends_at_most_ten_playlist_notes_and_reads_legacy_records(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "managed.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "accounts": {
+                    "accountOne": {
+                        "artists": {KEY: record().model_dump(mode="json")},
+                        "selected_artist_keys": [KEY],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = ManagedPlaylistRegistry(path)
+    assert registry.records_for("accountOne")[KEY].notes == []
+
+    first_time = datetime(2026, 10, 25, 20, 0, tzinfo=UTC)
+    for index in range(12):
+        registry.append_note(
+            "accountOne",
+            KEY,
+            "completed",
+            f"Sincronizacao sintetica {index}",
+            occurred_at=first_time,
+        )
+
+    notes = ManagedPlaylistRegistry(path).records_for("accountOne")[KEY].notes
+    assert len(notes) == 10
+    assert [note.message for note in notes] == [
+        f"Sincronizacao sintetica {index}" for index in range(2, 12)
+    ]
+    assert all(note.occurred_at == first_time for note in notes)
+
+
+def test_registry_persists_last_playlist_sync_time_per_account(tmp_path: Path) -> None:
+    registry = ManagedPlaylistRegistry(tmp_path / "managed.json")
+    assert registry.last_playlist_sync_at("accountOne") is None
+
+    updated_at = datetime(2026, 10, 25, 22, 45, tzinfo=UTC)
+    assert registry.mark_playlists_synced("accountOne", occurred_at=updated_at) == updated_at
+
+    reopened = ManagedPlaylistRegistry(registry.path)
+    assert reopened.last_playlist_sync_at("accountOne") == updated_at
+    assert reopened.last_playlist_sync_at("accountTwo") is None
 
 
 @pytest.mark.parametrize("contents", ["{broken", '{"version":2,"accounts":{}}'])

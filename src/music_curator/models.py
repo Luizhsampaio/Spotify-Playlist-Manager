@@ -52,6 +52,12 @@ class PlaylistOwner(BaseModel):
     id: str = Field(pattern=r"^[A-Za-z0-9]+$", min_length=1, max_length=128)
 
 
+class AlbumImage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    url: str
+
+
 class ManagedPlaylistDetails(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -61,6 +67,14 @@ class ManagedPlaylistDetails(BaseModel):
     public: bool | None
     collaborative: bool
     owner: PlaylistOwner
+    images: list[AlbumImage] = Field(default_factory=list)
+
+    @property
+    def cover_url(self) -> str | None:
+        for image in reversed(self.images):
+            if re.fullmatch(r"https://i\.scdn\.co/image/[A-Za-z0-9]{1,128}", image.url):
+                return image.url
+        return None
 
 
 class PlaylistItemIdentity(BaseModel):
@@ -122,12 +136,6 @@ class Artist(BaseModel):
 
     name: str
     id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]+$", min_length=1, max_length=128)
-
-
-class AlbumImage(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    url: str
 
 
 class Album(BaseModel):

@@ -1,10 +1,22 @@
 {% extends "app_shell.html" %}
 {% block title %}Playlists Gerenciadas — {{ app_name }}{% endblock %}
 {% block app_content %}
-<div class="dashboard-heading">
-  <span class="eyebrow">ORGANIZE SUA COLEÇÃO</span>
-  <h1>Playlists Gerenciadas<span class="brand-dot">.</span></h1>
-  <p>Escolha uma opção e configure como suas Músicas Curtidas serão organizadas.</p>
+<div class="dashboard-heading songs-heading">
+  <div><span class="eyebrow">ORGANIZE SUA COLEÇÃO</span>
+    <h1>Playlists Gerenciadas<span class="brand-dot">.</span></h1>
+    <p>Escolha uma opção e configure como suas Músicas Curtidas serão organizadas.</p>
+  </div>
+  {% if signed_in and not demo %}
+  <form method="post" action="/app/playlists/sincronizar-todas">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="button button-green" type="submit">{{ symbol("music") }} Atualizar playlists</button>
+    <small class="playlist-sync-timestamp">
+      {% if last_playlist_sync_at %}
+      Última atualização: {{ last_playlist_sync_at.astimezone().strftime("%d/%m/%Y %H:%M") }}
+      {% else %}Ainda não atualizada{% endif %}
+    </small>
+  </form>
+  {% endif %}
 </div>
 {% if artist_collection is not none %}
 <section class="managed-options" aria-label="Opções de playlists">
@@ -111,28 +123,131 @@
     </div>
   </form>
 </dialog>
-{% if playlist_results %}
-<section class="managed-results" aria-labelledby="managed-results-title">
-  <h2 id="managed-results-title">Resultado do último salvamento</h2>
+{% else %}
+<div class="empty-workspace"><h2>A coleção ainda não está disponível.</h2>
+  <p>Abra <a href="/app/musicas">Minhas Músicas</a> para conferir a conexão e atualizar suas músicas.</p></div>
+{% endif %}
+{% set playlist_attention = playlist_results | rejectattr("status", "equalto", "completed") | list %}
+{% if playlist_attention %}
+<section class="managed-save-alert" aria-labelledby="managed-save-alert-title" role="alert">
+  <h2 id="managed-save-alert-title">Algumas operações precisam de atenção</h2>
   <ul>
-    {% for result in playlist_results %}
-    <li class="managed-result managed-result-{{ result.status }}">
-      <strong>{{ result.artist_name }}</strong>
-      <span>{{ {"completed": "Concluído", "partial": "Parcial — verifique", "failed": "Não concluído"}[result.status] }}</span>
-      <p>{{ result.message }}</p>
+    {% for result in playlist_attention %}
+    <li><strong>{{ result.artist_name }}</strong> —
+      {{ {"partial": "Parcial — verifique", "failed": "Não concluído"}[result.status] }}:
+      {{ result.message }}
       {% if result.playlist_url %}
-      <a href="{{ result.playlist_url }}" target="_blank" rel="noopener noreferrer">
-        Abrir playlist no Spotify (ID: {{ result.playlist_id }})
-      </a>
+      <a href="{{ result.playlist_url }}" target="_blank" rel="noopener noreferrer">Ver playlist no Spotify</a>
       {% endif %}
     </li>
     {% endfor %}
   </ul>
 </section>
 {% endif %}
-{% else %}
-<div class="empty-workspace"><h2>A coleção ainda não está disponível.</h2>
-  <p>Abra <a href="/app/musicas">Minhas Músicas</a> para conferir a conexão e atualizar suas músicas.</p></div>
+{% if managed_playlist_count_errors %}
+<section class="managed-save-alert" aria-labelledby="managed-count-alert-title" role="alert">
+  <h2 id="managed-count-alert-title">Não foi possível verificar algumas contagens</h2>
+  <ul>
+    {% for playlist in managed_playlists %}
+    {% if playlist.artist_key in managed_playlist_count_errors %}
+    <li><strong>{{ playlist.artist_name }}</strong>: {{ managed_playlist_count_errors[playlist.artist_key] }}</li>
+    {% endif %}
+    {% endfor %}
+  </ul>
+</section>
 {% endif %}
+<section class="managed-playlists" aria-labelledby="managed-playlists-title">
+  <div class="section-intro">
+    <div><h2 id="managed-playlists-title">Suas playlists</h2>
+      <p>{{ managed_playlists | length }} {{ "playlist gerenciada" if managed_playlists | length == 1 else "playlists gerenciadas" }}</p>
+    </div>
+  </div>
+  {% if managed_playlists %}
+  <p class="table-hint">Em telas pequenas, deslize a tabela para ver todas as colunas.</p>
+  <div class="managed-playlists-table-wrap" role="region" aria-label="Playlists gerenciadas" tabindex="0">
+    <table class="managed-playlists-table">
+      <caption class="visually-hidden">Playlists gerenciadas registradas para esta conta</caption>
+      <thead><tr><th scope="col">Nome da Playlist</th><th scope="col">Status</th><th scope="col">Tipo da Playlist</th><th scope="col">Músicas</th><th scope="col">Playlist</th><th scope="col">Notas</th></tr></thead>
+      <tbody>
+        {% for playlist in managed_playlists %}
+        <tr>
+          <td>
+            <div class="managed-playlist-info">
+              <span class="managed-playlist-thumbnail" aria-hidden="true">
+                {{ symbol("music") }}
+                {% if playlist.artist_key in managed_playlist_cover_urls %}
+                <img data-playlist-cover src="{{ managed_playlist_cover_urls[playlist.artist_key] }}"
+                  alt="" width="42" height="42" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+                {% endif %}
+              </span>
+              <span>{{ playlist.artist_name }}</span>
+            </div>
+          </td>
+          <td>
+            {% if playlist.artist_key in managed_playlist_statuses %}
+            <span class="managed-playlist-status managed-playlist-status-{{ 'updated' if managed_playlist_statuses[playlist.artist_key] == 'Atualizada' else 'outdated' }}">{{ managed_playlist_statuses[playlist.artist_key] }}</span>
+            {% else %}
+            <span class="managed-playlist-status managed-playlist-status-unverified">Não verificada</span>
+            {% endif %}
+          </td>
+          <td>Por Artista</td>
+          <td>
+            {% if playlist.artist_key in managed_playlist_track_counts %}
+            {{ managed_playlist_track_counts[playlist.artist_key] }}
+            {% elif playlist.artist_key in managed_playlist_count_errors %}
+            <span class="managed-playlist-state managed-playlist-state-uncertain">Não verificada</span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if playlist.playlist_id %}
+            <a href="https://open.spotify.com/playlist/{{ playlist.playlist_id }}" target="_blank" rel="noopener noreferrer">Abrir no Spotify</a>
+            <small class="managed-playlist-id">ID: {{ playlist.playlist_id }}</small>
+            {% else %}Ainda sem playlist vinculada{% endif %}
+          </td>
+          <td><button class="managed-notes-link" type="button"
+            data-open-playlist-notes="playlist-notes-{{ playlist.artist_key }}"
+            aria-haspopup="dialog">Abrir</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% for playlist in managed_playlists %}
+  <dialog id="playlist-notes-{{ playlist.artist_key }}" class="playlist-notes-dialog"
+    aria-labelledby="playlist-notes-title-{{ playlist.artist_key }}">
+    <div class="playlist-dialog-heading">
+      <div><span class="eyebrow">HISTÓRICO</span>
+        <h2 id="playlist-notes-title-{{ playlist.artist_key }}">Notas — {{ playlist.artist_name }}</h2>
+      </div>
+      <button type="button" class="dialog-close" data-close-playlist-notes
+        aria-label="Fechar notas">×</button>
+    </div>
+    {% if playlist.notes %}
+    <ol class="playlist-notes-list">
+      {% for note in playlist.notes | reverse %}
+      <li>
+        <time datetime="{{ note.occurred_at.isoformat() }}">
+          {{ note.occurred_at.astimezone().strftime("%d/%m/%Y %H:%M") }}
+        </time>
+        <strong class="managed-playlist-state-{{ note.status }}">
+          {{ {"completed": "Concluído", "partial": "Parcial — verifique", "failed": "Não concluído"}[note.status] }}
+        </strong>
+        <p>{{ note.message }}</p>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <p class="playlist-notes-empty">Ainda não há alterações registradas para esta playlist.</p>
+    {% endif %}
+  </dialog>
+  {% endfor %}
+  {% else %}
+  <div class="empty-workspace">
+    <h3>Nenhuma playlist gerenciada</h3>
+    <p>{% if demo %}Os vínculos não são persistidos no modo demonstração.
+      {% else %}Configure playlists por artista para vê-las nesta tabela.{% endif %}</p>
+  </div>
+  {% endif %}
+</section>
 {% endblock %}
 {% block scripts %}<script src="/static/managed-playlists.js" defer></script>{% endblock %}

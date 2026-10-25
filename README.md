@@ -157,6 +157,11 @@ configuração nem altera playlists; os botões de envio aguardam sua conclusão
    e pode continuar pública ou acessível por link. Se selecionado novamente,
    uma nova playlist será criada. Uma seleção vazia remove todas as playlists
    gerenciadas da biblioteca.
+5. **Atualizar todas as playlists** primeiro recarrega as Músicas Curtidas e, em
+   seguida, sincroniza cada playlist já registrada com a coleção recém-importada.
+   Não altera a seleção nem remove playlists desmarcadas. Resultados ficam nas
+   Notas de cada playlist. O horário da última execução fica abaixo do botão e
+   persiste no registro local por conta.
 
 As colaborações entram no agrupamento de cada artista participante selecionado.
 Uma mesma faixa não se repete dentro da playlist do artista. Artistas com IDs
@@ -168,7 +173,9 @@ Os filtros de Minhas Músicas não limitam a sincronização: ela usa a coleçã
 da sessão. Atualizar a coleção não descarta a seleção; dados antigos enviados por
 outra aba são recusados. O registro local
 `.local-data/spotify/managed-playlists.json` guarda seleção, IDs e estados por
-conta/artista, sem conteúdo de músicas, e permanece ao desconectar.
+conta/artista, além das dez notas mais recentes das operações por playlist, sem
+conteúdo de músicas, e permanece ao desconectar. A tabela exibe a quantidade
+atual consultada dos itens reais no Spotify; notas abrem o histórico recente.
 O caminho é ancorado na raiz do projeto, não no diretório de onde o processo foi
 iniciado, para que reiniciar a aplicação não crie outro registro por engano.
 O modo demo oferece somente a configuração local com músicas e artistas fictícios;
@@ -237,8 +244,11 @@ depois do início das mutações ainda podem gerar resultados parciais por artis
   e itens dos IDs registrados localmente para verificar propriedade e sincronização.
 - Lê Músicas Curtidas automaticamente ao entrar no painel, uma vez por sessão,
   e novamente ao clicar em **Atualizar músicas**. Não lê o conteúdo de outras
-  playlists nem consulta email ou nome de perfil; a sincronização consulta somente
-  o ID imutável da conta. Não há sincronização contínua.
+  playlists nessa etapa nem consulta email ou nome de perfil; a sincronização
+  consulta somente o ID imutável da conta. A página **Playlists Gerenciadas**
+  atualiza as Músicas Curtidas e lê as faixas das playlists vinculadas a cada
+  abertura para indicar se estão atualizadas. Essa verificação não altera playlists.
+  Não há sincronização contínua.
 - Navegação, pesquisa e filtros reutilizam a coleção carregada. Uma coleção vazia
   também conta como carga concluída. Falhas não são repetidas a cada navegação:
   use **Atualizar músicas** ou **Reconectar Spotify**, conforme a mensagem.

@@ -7,9 +7,10 @@
   separados por Client ID.
 - `.local-data/spotify/managed-playlists.json`: registro local ignorado pelo Git,
   particionado pelo ID imutável da conta Spotify. Guarda chave/ID/nome do artista,
-  seleção por conta, ID e proprietário da playlist e estado da operação; não
-  guarda músicas, tokens, nome de perfil ou email. O registro permanece ao
-  desconectar para manter a configuração da mesma conta.
+  seleção por conta, ID e proprietário da playlist, estado da operação e até dez
+  notas recentes por playlist com data, resultado e mensagem; não guarda conteúdo
+  de músicas, tokens, nome de perfil ou email. O registro permanece ao desconectar
+  para manter a configuração da mesma conta.
 - Memória do processo: access token, verificador PKCE temporário, sessão e respostas
   de playlists durante a consulta; Músicas Curtidas importadas na sessão do navegador.
 - Navegador: cookie de sessão opaco, HttpOnly e SameSite=Lax, com duração de oito
@@ -57,6 +58,11 @@ e, no modo real, ficam no registro local particionado por conta para persistir
 entre sessões e navegadores. Atualizar músicas não invalida a seleção. No modo
 demo, **Salvar** guarda somente a seleção na sessão e não acessa endpoints
 Spotify de escrita.
+
+Ao abrir esta página no modo real, o app atualiza as Músicas Curtidas e compara
+os IDs das faixas esperadas com os itens das playlists vinculadas. Essa verificação
+é somente de leitura e não sincroniza nem altera playlists; falhas de leitura são
+mostradas como “Não verificada”.
 
 O botão **Atualizar** no modal de playlists faz a mesma importação completa de
 Músicas Curtidas, somente de leitura, em background. Clicar no cartão **Por artista**
@@ -116,6 +122,9 @@ Não há cache da biblioteca em disco, telemetria, scripts externos ou chamada d
 A resposta HTML é marcada `no-store`. O aplicativo não grava
 capas em disco; o cache de imagens do navegador depende dos cabeçalhos do CDN.
 Capas não disponíveis ou com falha de download mantêm o ícone e um aviso explícito.
+As miniaturas das playlists vêm dos detalhes retornados pela API; somente URLs
+`https://i.scdn.co/image/...` são incluídas na página. O próprio navegador baixa
+essas imagens do CDN do Spotify, compartilhando com ele o IP do navegador.
 O modo demo usa exclusivamente uma ilustração SVG fictícia local, com acesso a
 imagens remotas bloqueado pela política de conteúdo. Um script local trata apenas
 falhas de imagem, sem rede, armazenamento ou telemetria.

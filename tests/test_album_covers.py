@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from music_curator.config import ORIGIN, Settings
 from music_curator.demo import PROTOTYPE_TRACKS, DemoCredentialStore, demo_response
-from music_curator.models import Album
+from music_curator.models import Album, ManagedPlaylistDetails
 from music_curator.spotify import TOKEN_URL
 from music_curator.web import create_app
 
@@ -57,6 +57,36 @@ def test_cover_uses_smallest_trusted_image_in_spotify_size_order() -> None:
         ).cover_url
         == album.cover_url
     )
+
+
+def test_managed_playlist_cover_uses_only_trusted_spotify_image_urls() -> None:
+    details = ManagedPlaylistDetails.model_validate(
+        {
+            "id": "syntheticPlaylist",
+            "name": "Playlist sintética",
+            "public": True,
+            "collaborative": False,
+            "owner": {"id": "syntheticAccount"},
+            "images": [
+                {"url": "https://i.scdn.co/image/syntheticLarge", "width": 640, "height": 640},
+                {"url": "https://i.scdn.co/image/syntheticSmall", "width": 64, "height": 64},
+                {"url": "https://evil.example/synthetic-secret"},
+            ],
+        }
+    )
+    assert details.cover_url == "https://i.scdn.co/image/syntheticSmall"
+
+    unsafe = ManagedPlaylistDetails.model_validate(
+        {
+            "id": "syntheticPlaylist",
+            "name": "Playlist sintética",
+            "public": True,
+            "collaborative": False,
+            "owner": {"id": "syntheticAccount"},
+            "images": [{"url": "https://evil.example/synthetic-secret"}],
+        }
+    )
+    assert unsafe.cover_url is None
 
 
 @pytest.mark.parametrize("kind", ["official", "missing", "unsafe", "unavailable"])

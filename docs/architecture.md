@@ -241,14 +241,32 @@ persiste a seleção para a conta antes de reconciliar playlists. Não há inter
 aplica a seleção atual, inclusive uma seleção vazia. A configuração persistente
 está no registro `.local-data/spotify/managed-playlists.json`, particionado pelo
 `account_id` retornado por `GET /v1/me`; contém as chaves de artistas selecionados
-e IDs/estados das playlists, nunca faixas da biblioteca. A seleção sobrevive a
+e IDs/estados das playlists, além de até dez notas recentes por playlist. As notas
+registram data/hora, resultado e mensagem das operações; não armazenam faixas.
+A cada abertura da tela, a coleção de Músicas Curtidas é atualizada e os itens das
+playlists registradas são consultados após validar propriedade e visibilidade.
+A tabela mostra a contagem e compara os IDs atuais com a sequência esperada para
+indicar “Atualizada” ou “Desatualizada”; falhas de leitura aparecem como
+“Não verificada”. Essa checagem não altera playlists. A seleção sobrevive a
 sessões e navegadores da mesma conta. Atualizar músicas não a invalida. Busca e
 seleção não chamam a API. O demo não acessa transporte externo ou credenciais e
 mantém a seleção somente na sessão. O modal exibe ao lado de cada artista o ID
 da playlist registrada que continua vinculada; artistas sem registro ativo são
 marcados como sem playlist vinculada.
+As miniaturas das playlists usam as imagens retornadas junto aos detalhes da API,
+somente quando a URL corresponde ao CDN oficial do Spotify; a interface mostra
+um ícone local se a imagem não existir ou falhar.
 O caminho do registro é resolvido a partir da localização do aplicativo, não do
 diretório de trabalho do processo, para manter a persistência entre reinicializações.
+
+**Atualizar todas as playlists** força nova leitura de Músicas Curtidas antes de
+percorrer os vínculos registrados. Cada destino passa pelas mesmas validações
+de propriedade, visibilidade e colaboração e só então é sincronizado para refletir
+a coleção recém-importada. Esta ação não salva nem altera a seleção e não remove
+playlists de Sua Biblioteca. Falhas de uma playlist são registradas e não impedem
+as demais; falha ao atualizar Músicas Curtidas interrompe o processo antes de
+qualquer escrita nas playlists. O horário da execução mais recente é persistido
+por conta no mesmo registro local e exibido abaixo do botão.
 
 No modo real, **Salvar** usa `playlist-modify-public`,
 `user-library-modify`, `user-library-read` e `user-read-private`. Antes da criação, persiste um estado

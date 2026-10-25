@@ -1,5 +1,6 @@
 import os
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -11,6 +12,14 @@ from music_curator.models import AppError
 def default_registry_path() -> Path:
     project_root = Path(__file__).resolve().parents[2]
     return project_root / ".local-data" / "spotify" / "managed-playlists.json"
+
+
+class ManagedPlaylistLogEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    occurred_at: datetime
+    status: Literal["completed", "partial", "failed"]
+    message: str = Field(min_length=1, max_length=2000)
 
 
 class ManagedPlaylistRecord(BaseModel):
@@ -30,6 +39,7 @@ class ManagedPlaylistRecord(BaseModel):
     state: Literal[
         "pending_create", "creation_uncertain", "created", "active", "removed", "uncertain"
     ]
+    notes: list[ManagedPlaylistLogEntry] = Field(default_factory=list, max_length=10)
 
     @model_validator(mode="after")
     def consistent_playlist_identity(self) -> "ManagedPlaylistRecord":
@@ -47,6 +57,7 @@ class AccountRegistry(BaseModel):
 
     artists: dict[str, ManagedPlaylistRecord] = Field(default_factory=dict)
     selected_artist_keys: list[str] = Field(default_factory=list)
+    last_playlist_sync_at: datetime | None = None
 
     @model_validator(mode="after")
     def validate_artist_keys(self) -> "AccountRegistry":
@@ -93,6 +104,20 @@ class ManagedPlaylistRegistry:
         account = document.accounts.get(account_id)
         return set(account.selected_artist_keys) if account is not None else set()
 
+    def last_playlist_sync_at(self, account_id: str) -> datetime | None:
+        document = self._load()
+        account = document.accounts.get(account_id)
+        return account.last_playlist_sync_at if account is not None else None
+
+    def mark_playlists_synced(
+        self, account_id: str, *, occurred_at: datetime | None = None
+    ) -> datetime:
+        document = self._load()
+        account = document.accounts.setdefault(account_id, AccountRegistry())
+        account.last_playlist_sync_at = occurred_at or datetime.now(UTC)
+        self._save(document)
+        return account.last_playlist_sync_at
+
     def save_selection(self, account_id: str, artist_keys: set[str]) -> None:
         document = self._load()
         account = document.accounts.setdefault(account_id, AccountRegistry())
@@ -108,6 +133,30 @@ class ManagedPlaylistRegistry:
         document = self._load()
         account = document.accounts.setdefault(account_id, AccountRegistry())
         account.artists[record.artist_key] = record
+        self._save(document)
+
+    def append_note(
+        self,
+        account_id: str,
+        artist_key: str,
+        status: Literal["completed", "partial", "failed"],
+        message: str,
+        *,
+        occurred_at: datetime | None = None,
+    ) -> None:
+        document = self._load()
+        account = document.accounts.get(account_id)
+        record = account.artists.get(artist_key) if account is not None else None
+        if record is None:
+            raise AppError("Nao foi possivel registrar a nota da playlist vinculada.")
+        record.notes.append(
+            ManagedPlaylistLogEntry(
+                occurred_at=occurred_at or datetime.now(UTC),
+                status=status,
+                message=message,
+            )
+        )
+        record.notes = record.notes[-10:]
         self._save(document)
 
     def delete_record(self, account_id: str, artist_key: str) -> None:

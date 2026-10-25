@@ -676,6 +676,7 @@ def create_app(
         request: Request,
         name: str,
         *,
+        force_refresh_tracks: bool = False,
         message: str | None = None,
         error: bool = False,
         status_code: int = 200,
@@ -698,7 +699,9 @@ def create_app(
                 message, error, status_code = str(exc), True, 503
         if name in PRODUCT_PAGES and signed_in and status_code == 200:
             async with session.import_lock:
-                if not session.import_attempted and not await refresh_tracks(sid, session):
+                if (
+                    force_refresh_tracks or not session.import_attempted
+                ) and not await refresh_tracks(sid, session):
                     return PlainTextResponse(
                         "Sessao ou conexao alterada. Reabra a pagina.", status_code=409
                     )
@@ -708,22 +711,28 @@ def create_app(
                 except AppError as exc:
                     message, error, status_code = str(exc), True, 503
         if name in PRODUCT_PAGES and status_code == 200 and session.import_message:
-            message, error, status_code = session.import_message, True, session.import_status
+            message, error = session.import_message, True
             reconnect = session.import_reconnect
             import_failed = True
-            name = "songs"
+            if force_refresh_tracks:
+                status_code = 200
+            else:
+                status_code = session.import_status
+                name = "songs"
         managed_playlist_ids: dict[str, str] = {}
-        if (
-            name == "managed_playlists"
-            and signed_in
-            and status_code == 200
-            and not demo
-            and playlist_records is None
-        ):
+        managed_playlist_track_counts: dict[str, int] = {}
+        managed_playlist_count_errors: dict[str, str] = {}
+        managed_playlist_statuses: dict[str, str] = {}
+        managed_playlist_cover_urls: dict[str, str] = {}
+        managed_account_id: str | None = None
+        last_playlist_sync_at = None
+        if name == "managed_playlists" and signed_in and status_code == 200 and not demo:
             try:
-                account_id = await client.current_account_id()
-                session.selected_artists = registry.selection_for(account_id)
-                playlist_records = registry.records_for(account_id)
+                managed_account_id = await client.current_account_id()
+                last_playlist_sync_at = registry.last_playlist_sync_at(managed_account_id)
+                if playlist_records is None:
+                    session.selected_artists = registry.selection_for(managed_account_id)
+                    playlist_records = registry.records_for(managed_account_id)
             except AppError as exc:
                 message, error, status_code = str(exc), True, 503
         if signed_in and playlist_records is not None:
@@ -732,6 +741,45 @@ def create_app(
                 for artist_key, record in playlist_records.items()
                 if record.playlist_id is not None and record.state != "removed"
             }
+        expected_tracks_by_artist = (
+            {
+                group.key: [track.id for track in group.tracks if track.id is not None]
+                for group in artist_playlists(session.tracks or []).playlists
+            }
+            if session.tracks is not None and session.import_message is None
+            else None
+        )
+        if (
+            name == "managed_playlists"
+            and signed_in
+            and status_code == 200
+            and not demo
+            and playlist_records is not None
+            and managed_account_id is not None
+        ):
+            for artist_key, record in playlist_records.items():
+                if record.playlist_id is None or record.state == "removed":
+                    continue
+                try:
+                    details = await client.get_managed_playlist(record.playlist_id)
+                    if not _managed_destination_matches(details, managed_account_id, record):
+                        managed_playlist_count_errors[artist_key] = (
+                            "Propriedade ou visibilidade não corresponde ao registro."
+                        )
+                        continue
+                    if details.cover_url is not None:
+                        managed_playlist_cover_urls[artist_key] = details.cover_url
+                    actual_track_ids = await client.playlist_item_ids(record.playlist_id)
+                    managed_playlist_track_counts[artist_key] = len(actual_track_ids)
+                    if expected_tracks_by_artist is not None:
+                        expected_track_ids = expected_tracks_by_artist.get(artist_key, [])
+                        managed_playlist_statuses[artist_key] = (
+                            "Atualizada"
+                            if actual_track_ids == expected_track_ids
+                            else "Desatualizada"
+                        )
+                except AppError as exc:
+                    managed_playlist_count_errors[artist_key] = str(exc)
         if name in PRODUCT_PAGES and not signed_in and status_code == 200:
             response: Response = RedirectResponse("/entrar", status_code=303)
         elif name == "login" and signed_in and not message:
@@ -766,6 +814,15 @@ def create_app(
                     if signed_in
                     else set(),
                     "managed_playlist_ids": managed_playlist_ids,
+                    "managed_playlists": sorted(
+                        (playlist_records or {}).values(),
+                        key=lambda record: record.artist_name.casefold(),
+                    ),
+                    "managed_playlist_track_counts": managed_playlist_track_counts,
+                    "managed_playlist_count_errors": managed_playlist_count_errors,
+                    "managed_playlist_statuses": managed_playlist_statuses,
+                    "managed_playlist_cover_urls": managed_playlist_cover_urls,
+                    "last_playlist_sync_at": last_playlist_sync_at,
                     "playlist_bindings_available": playlist_records is not None,
                     "tracks_revision": session.tracks_revision,
                     "open_artist_dialog": open_artist_dialog or validation_issues is not None,
@@ -807,7 +864,7 @@ def create_app(
         session = sessions.get(request.cookies.get(COOKIE, ""))
         if session is not None:
             session.pending_playlist_save = None
-        return await product_page(request, "managed_playlists")
+        return await product_page(request, "managed_playlists", force_refresh_tracks=True)
 
     @app.post("/app/playlists/por-artista/atualizar")
     async def refresh_artist_playlist_settings(request: Request) -> Response:
@@ -1110,6 +1167,15 @@ def create_app(
                                         )
                                     if result is not None:
                                         results.append(result)
+                                saved_records = registry.records_for(account_id)
+                                for result in results:
+                                    if result.artist_key in saved_records:
+                                        registry.append_note(
+                                            account_id,
+                                            result.artist_key,
+                                            result.status,
+                                            result.message,
+                                        )
                                 session.selected_artists = selected_keys
                                 session.playlist_results = results
                                 if not results:
@@ -1138,6 +1204,138 @@ def create_app(
                 open_artist_dialog=True,
             )
         return RedirectResponse("/app/playlists", status_code=303)
+
+    @app.post("/app/playlists/sincronizar-todas")
+    async def sync_all_managed_playlists(request: Request) -> Response:
+        verified = await verified_form(request, max_fields=1, max_bytes=4096)
+        if verified is None:
+            return PlainTextResponse("Sessao invalida. Reabra a pagina.", status_code=403)
+        session, fields = verified
+        if set(fields) != {"csrf"} or len(fields["csrf"]) != 1:
+            return PlainTextResponse("Formulario invalido. Reabra a pagina.", status_code=400)
+        try:
+            connected = session.prototype_signed_in if demo else client.saved_connection()
+        except AppError as exc:
+            return await product_page(
+                request, "managed_playlists", message=str(exc), error=True, status_code=503
+            )
+        if not connected:
+            return RedirectResponse("/entrar", status_code=303)
+        if demo:
+            return await product_page(
+                request,
+                "managed_playlists",
+                message="A sincronizacao de playlists nao esta disponivel no modo demonstracao.",
+                error=True,
+                status_code=400,
+            )
+
+        sid = request.cookies.get(COOKIE, "")
+        sync_error: AppError | None = None
+        async with session.import_lock:
+            session.pending_playlist_save = None
+            session.playlist_results = []
+            if not await refresh_tracks(sid, session):
+                return PlainTextResponse(
+                    "Sessao ou conexao alterada. Reabra a pagina.", status_code=409
+                )
+            if session.import_message:
+                message = session.import_message
+                status = session.import_status
+                reconnect = session.import_reconnect
+                session.import_message = None
+                session.import_status = 200
+                session.import_reconnect = False
+                session.message = message
+                session.message_error = True
+                if reconnect:
+                    session.tracks = None
+                return RedirectResponse(
+                    "/app/playlists",
+                    status_code=303 if status != 409 else 409,
+                )
+            try:
+                async with playlist_operation_lock:
+                    version = connection_version
+                    account_id = await client.current_account_id()
+                    records = registry.records_for(account_id)
+                    if (
+                        version != connection_version
+                        or sessions.get(sid) is not session
+                        or session.expires_at <= time.monotonic()
+                    ):
+                        return PlainTextResponse(
+                            "Sessao ou conexao alterada. Reabra a pagina.", status_code=409
+                        )
+                    await client.validate_management_permissions()
+                    groups = {
+                        group.key: group
+                        for group in artist_playlists(session.tracks or []).playlists
+                    }
+                    results: list[PlaylistMutationResult] = []
+                    for artist_key, record in records.items():
+                        if record.state == "removed":
+                            continue
+                        group = groups.get(artist_key)
+                        if group is None:
+                            group = ArtistPlaylist(
+                                key=artist_key,
+                                name=record.artist_name,
+                                artist_id=record.artist_id,
+                            )
+                        try:
+                            result = await _manage_selected_artist(
+                                client,
+                                registry,
+                                account_id,
+                                artist_key,
+                                group,
+                                record,
+                            )
+                        except AppError as exc:
+                            result = _playlist_result(
+                                artist_key,
+                                record.artist_name,
+                                "partial" if isinstance(exc, MutationOutcomeUnknown) else "failed",
+                                str(exc),
+                                record.playlist_id,
+                            )
+                        results.append(result)
+                        if artist_key in registry.records_for(account_id):
+                            registry.append_note(
+                                account_id,
+                                artist_key,
+                                result.status,
+                                result.message,
+                            )
+                    session.playlist_results = results
+                    completed = sum(result.status == "completed" for result in results)
+                    attention = len(results) - completed
+                    if results:
+                        message = (
+                            f"Atualizacao concluida para {completed} playlist(s); "
+                            f"{attention} precisa(m) de atencao."
+                        )
+                    else:
+                        message = "Nao ha playlists gerenciadas para sincronizar."
+                    registry.mark_playlists_synced(account_id)
+            except AppError as exc:
+                sync_error = exc
+        if sync_error is not None:
+            return await product_page(
+                request,
+                "managed_playlists",
+                message=str(sync_error),
+                error=True,
+                status_code=502,
+            )
+        return await product_page(
+            request,
+            "managed_playlists",
+            message=message,
+            error=attention > 0 if results else False,
+            playlist_records=registry.records_for(account_id),
+        )
 
     @app.post("/app/musicas/filtrar")
     async def filter_songs(request: Request) -> Response:
