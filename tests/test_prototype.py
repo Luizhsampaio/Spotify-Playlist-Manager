@@ -100,6 +100,22 @@ def test_dashboard_requires_demo_session(prototype: TestClient) -> None:
     assert page.headers["location"] == "/entrar"
 
 
+@pytest.mark.parametrize("path", ["/", "/entrar", "/app", "/app/musicas", "/app/playlists"])
+def test_harmonia_playlists_is_the_visible_name_on_every_page(
+    prototype: TestClient, path: str
+) -> None:
+    if path.startswith("/app"):
+        prototype.post("/demo/entrar", data={"csrf": csrf(prototype)}, headers=HEADERS)
+    page = prototype.get(path)
+    assert page.status_code == 200
+    title = re.search(r"<title>(.*?)</title>", page.text)
+    assert title and "harmonia playlists" in title[1]
+    assert 'aria-label="harmonia playlists, início"' in page.text
+    brand_markup = '<strong>harmonia</strong> <span class="brand-light"><em>playlists</em></span>'
+    assert brand_markup in page.text
+    assert "Curador Musical" not in page.text
+
+
 def test_sessions_are_independent(prototype: TestClient) -> None:
     prototype.post("/demo/entrar", data={"csrf": csrf(prototype)}, headers=HEADERS)
     with TestClient(prototype.app, base_url=ORIGIN) as other:

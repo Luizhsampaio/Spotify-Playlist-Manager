@@ -12,9 +12,9 @@
 </svg>
 {%- endmacro %}
 {% macro brand() -%}
-<a class="brand" href="/" aria-label="Curador Musical, início">
+<a class="brand" href="/" aria-label="{{ app_name }}, início">
   <span class="brand-mark">{{ symbol("music") }}</span>
-  <span>curador<span class="brand-light">musical</span><span class="brand-dot">.</span></span>
+  <span><strong>harmonia</strong> <span class="brand-light"><em>playlists</em></span><span class="brand-dot">.</span></span>
 </a>
 {%- endmacro %}
 {% macro feedback() -%}
@@ -27,7 +27,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Curador Musical{% endblock %}</title>
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
   <link rel="stylesheet" href="/static/prototype.css">
 </head>
 <body class="{% block body_class %}{% endblock %}">

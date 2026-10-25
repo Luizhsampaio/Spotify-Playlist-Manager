@@ -57,6 +57,7 @@ class ManagedPlaylistDetails(BaseModel):
 
     id: str = Field(pattern=r"^[A-Za-z0-9]+$", min_length=1, max_length=128)
     name: str
+    description: str | None = None
     public: bool | None
     collaborative: bool
     owner: PlaylistOwner

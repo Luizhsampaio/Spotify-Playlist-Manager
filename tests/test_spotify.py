@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import hashlib
+import json
 from collections.abc import Coroutine
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -15,6 +16,7 @@ from music_curator.models import AppError, MutationOutcomeUnknown, ReconnectRequ
 from music_curator.spotify import (
     AUTH_SCOPES,
     CREATE_PLAYLIST_URL,
+    MANAGED_PLAYLIST_DESCRIPTION,
     PLAYLISTS_URL,
     TOKEN_URL,
     SpotifyClient,
@@ -158,15 +160,18 @@ def test_create_replace_and_verify_playlist_items(store: DemoCredentialStore) ->
         assert request.headers["authorization"] == "Bearer synthetic-access"
         if str(request.url) == CREATE_PLAYLIST_URL:
             assert request.method == "POST"
-            assert (
-                request.read()
-                == b'{"name":"Artista sintetico","public":true,"collaborative":false}'
-            )
+            assert json.loads(request.read()) == {
+                "name": "Artista sintetico",
+                "description": MANAGED_PLAYLIST_DESCRIPTION,
+                "public": True,
+                "collaborative": False,
+            }
             return httpx.Response(
                 201,
                 json={
                     "id": "syntheticPlaylist",
                     "name": "Artista sintetico",
+                    "description": MANAGED_PLAYLIST_DESCRIPTION,
                     "public": True,
                     "collaborative": False,
                     "owner": {"id": "syntheticOwner"},
@@ -198,6 +203,7 @@ def test_create_replace_and_verify_playlist_items(store: DemoCredentialStore) ->
             created = await client.create_public_playlist("Artista sintetico")
             assert created.id == "syntheticPlaylist"
             assert created.owner.id == "syntheticOwner"
+            assert created.description == MANAGED_PLAYLIST_DESCRIPTION
             await client.replace_playlist_items(created.id, ["spotify:track:one"])
             assert await client.playlist_item_ids(created.id) == ["one", "two"]
 
@@ -605,3 +611,83 @@ def test_library_presence_refreshes_once_on_401(store: DemoCredentialStore) -> N
 
     run(scenario())
     assert gets == 2
+
+
+def test_managed_description_is_bounded_and_explains_project_behavior() -> None:
+    assert 0 < len(MANAGED_PLAYLIST_DESCRIPTION) <= 300
+    assert MANAGED_PLAYLIST_DESCRIPTION == (
+        "Playlist gerenciada pelo Harmonia Playlist Management (HPM). "
+        "Evite ajustes manuais na playlist para seu correto funcionamento."
+    )
+
+
+def test_update_metadata_sends_only_name_and_standard_description(
+    store: DemoCredentialStore,
+) -> None:
+    writes: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json=TOKEN)
+        writes.append(request)
+        assert request.method == "PUT"
+        assert request.url.path == "/v1/playlists/syntheticPlaylist"
+        assert json.loads(request.read()) == {
+            "name": "Artista sintetico",
+            "description": MANAGED_PLAYLIST_DESCRIPTION,
+        }
+        return httpx.Response(200)
+
+    async def scenario() -> None:
+        store.save("synthetic-refresh")
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            await SpotifyClient(CLIENT_ID, store, http).update_public_playlist_details(
+                "syntheticPlaylist", "Artista sintetico"
+            )
+
+    run(scenario())
+    assert len(writes) == 1
+
+
+@pytest.mark.parametrize("description", ["", "  ", "x" * 301])
+def test_invalid_description_is_rejected_before_http(
+    store: DemoCredentialStore, description: str
+) -> None:
+    def forbidden(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("Invalid descriptions must not make an HTTP request")
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(forbidden)) as http:
+            with pytest.raises(AppError, match="descricao"):
+                await SpotifyClient(CLIENT_ID, store, http).update_public_playlist_details(
+                    "syntheticPlaylist", "Artista", description=description
+                )
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("description", [None, "x" * 300])
+def test_metadata_can_preserve_description_or_use_exact_limit(
+    store: DemoCredentialStore, description: str | None
+) -> None:
+    payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json=TOKEN)
+        payloads.append(json.loads(request.read()))
+        return httpx.Response(200)
+
+    async def scenario() -> None:
+        store.save("synthetic-refresh")
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            await SpotifyClient(CLIENT_ID, store, http).update_public_playlist_details(
+                "syntheticPlaylist", "Artista", description=description
+            )
+
+    run(scenario())
+    assert payloads == [
+        {"name": "Artista"}
+        if description is None
+        else {"name": "Artista", "description": description}
+    ]

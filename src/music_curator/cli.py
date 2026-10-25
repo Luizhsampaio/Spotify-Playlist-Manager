@@ -4,10 +4,10 @@ import typer
 import uvicorn
 from pydantic import ValidationError
 
-from music_curator.config import ORIGIN, Settings, load_settings
+from music_curator.config import APP_NAME, ORIGIN, Settings, load_settings
 from music_curator.web import create_app
 
-cli = typer.Typer(help="Curadoria musical pessoal, local e somente leitura.")
+cli = typer.Typer(help=f"{APP_NAME}: curadoria musical e playlists gerenciadas localmente.")
 
 
 @cli.command()

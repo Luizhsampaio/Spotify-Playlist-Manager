@@ -1,10 +1,16 @@
-# Curador Musical
+# **harmonia** *playlists*
 
 Uma aplicação pessoal, em português, que roda no seu computador com **interface
 inspirada em SaaS**: Landing Page, entrada pelo Spotify e painel do produto.
 O menu lateral dá acesso a **Minhas Músicas**, que importa e lista suas
 **Músicas Curtidas** do Spotify, somente para leitura e sem salvar a biblioteca
-em disco. Não executa automações nem modifica sua conta.
+em disco. Playlists gerenciadas são criadas ou sincronizadas somente por uma
+ação explícita na configuração; não há sincronização contínua.
+
+**harmonia playlists** é o nome de apresentação em teste. O pacote `music_curator`, o comando
+`music-curator`, o Client ID e os registros locais de playlists e credenciais são
+preservados. Alterar o nome exibido no consentimento OAuth exige ajustar o cadastro
+do aplicativo no Spotify Developer Dashboard; esta mudança não faz isso automaticamente.
 
 Não há integração com IA, hospedagem, banco de dados ou necessidade de Client Secret.
 A senha é digitada somente no site oficial do Spotify.
@@ -172,6 +178,24 @@ Falhas parciais são mostradas por artista com ID/link quando disponível. Um ti
 durante a criação bloqueia uma nova criação automática até resolução manual; o app
 não repete mutações incertas. A conclusão só é exibida após leitura de volta e
 comparação das faixas.
+
+### Identificação das playlists no Spotify
+
+As playlists recebem esta descrição padrão:
+
+> Playlist gerenciada pelo Harmonia Playlist Management (HPM). Evite ajustes manuais na playlist para seu correto funcionamento.
+
+A descrição vai na criação. Para playlists já vinculadas, o próximo envio explícito
+de **Configurar** ou **Confirmar e Salvar** também preenche descrições nulas, vazias
+ou com o texto "Null", e substitui a descrição padrão anterior do app, mantendo o ID.
+Descrições personalizadas já preenchidas são
+preservadas, inclusive ao corrigir o nome da playlist. Abrir o modal ou atualizar músicas não altera
+esses metadados.
+
+O aplicativo verifica nome e descrição por leitura de volta. Se o Spotify não
+confirmar os metadados, mostra resultado parcial e não anuncia sincronização integral.
+A descrição não prova que uma playlist é gerenciada: o vínculo por conta/ID e as
+verificações de propriedade continuam obrigatórios.
 
 ### Playlists removidas manualmente e conflitos
 

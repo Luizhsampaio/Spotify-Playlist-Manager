@@ -44,6 +44,16 @@ AUTH_SCOPES = (
     f"{READ_SCOPE} {LIBRARY_SCOPE} {PUBLIC_PLAYLIST_SCOPE} {LIBRARY_MODIFY_SCOPE} {PROFILE_SCOPE}"
 )
 REQUIRED_SCOPES = set(AUTH_SCOPES.split())
+MANAGED_PLAYLIST_DESCRIPTION = (
+    "Playlist gerenciada pelo Harmonia Playlist Management (HPM). "
+    "Evite ajustes manuais na playlist para seu correto funcionamento."
+)
+PREVIOUS_MANAGED_PLAYLIST_DESCRIPTION = (
+    "Playlist gerenciada criada pelo Harmonia a partir das suas Músicas Curtidas. "
+    "Sincronizada ao configurar no app; faixas adicionadas manualmente podem ser removidas. "
+    "Playlist pública. Remover de Sua Biblioteca não a exclui definitivamente do Spotify. "
+    "Sem envio de dados para IA."
+)
 
 
 class SpotifyClient:
@@ -407,7 +417,12 @@ class SpotifyClient:
             "POST",
             CREATE_PLAYLIST_URL,
             PUBLIC_PLAYLIST_SCOPE,
-            {"name": name, "public": True, "collaborative": False},
+            {
+                "name": name,
+                "description": MANAGED_PLAYLIST_DESCRIPTION,
+                "public": True,
+                "collaborative": False,
+            },
             expected_statuses={201},
         )
         try:
@@ -423,18 +438,29 @@ class SpotifyClient:
             )
         return playlist
 
-    async def rename_public_playlist(self, playlist_id: str, name: str) -> None:
+    async def update_public_playlist_details(
+        self,
+        playlist_id: str,
+        name: str,
+        *,
+        description: str | None = MANAGED_PLAYLIST_DESCRIPTION,
+    ) -> None:
         if (
             not re.fullmatch(r"[A-Za-z0-9]{1,128}", playlist_id)
             or not name.strip()
             or len(name) > 100
         ):
             raise AppError("O ID ou nome da playlist nao e valido.")
+        payload: dict[str, object] = {"name": name}
+        if description is not None:
+            if not description.strip() or len(description) > 300:
+                raise AppError("A descricao da playlist deve ter de 1 a 300 caracteres.")
+            payload["description"] = description
         await self._mutate(
             "PUT",
             f"{PLAYLISTS_API_URL}/{playlist_id}",
             PUBLIC_PLAYLIST_SCOPE,
-            {"name": name},
+            payload,
             expected_statuses={200},
         )
 

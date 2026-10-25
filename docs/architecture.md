@@ -258,6 +258,25 @@ pública e ausência de colaboração. O conteúdo é substituído por URIs eleg
 Músicas Curtidas (primeiro lote de até 100 via PUT, lotes restantes via POST), lido
 de volta e comparado exatamente antes de informar conclusão.
 
+`APP_NAME` define o nome de apresentação harmonia playlists, compartilhado pelos
+templates e CLI. O nome Harmonia Playlist Management (HPM) permanece na descrição
+padrão das playlists. Os nomes técnicos de pacote/comando e os identificadores do
+cofre e do registro não são alterados.
+
+A criação inclui descrição padrão não nula, identificando Harmonia Playlist
+Management (HPM) e orientando evitar ajustes manuais. O texto é determinístico e limitado a
+300 caracteres por teste e validação do cliente. No salvamento explícito, nomes
+divergentes e descrições ausentes/vazias/"Null" de destinos registrados são
+atualizados em um único PUT de detalhes e lidos de
+volta antes de alterar faixas. Timeout não repete o PUT: a leitura pode comprovar
+aplicação ou produzir resultado parcial. Descrição nula/omitida na criação não
+descarta o ID nem provoca outra criação; o ID é registrado antes da reconciliação.
+Somente registro da conta e propriedade validada autorizam a escrita, nunca a
+presença da marca Harmonia na descrição. Textos personalizados não vazios são
+preservados; ao atualizar somente o nome, o PUT não envia o campo de descrição.
+A descrição padrão anterior, reconhecida pelo texto completo exato, também é
+migrada no salvamento explícito, sem confundi-la com personalização do usuário.
+
 Desmarcar um artista remove a playlist apenas de Sua Biblioteca; após confirmação,
 o registro local do ID é apagado. A playlist pública não é excluída e pode ficar
 sem vínculo na biblioteca. Se o artista for selecionado novamente, uma playlist

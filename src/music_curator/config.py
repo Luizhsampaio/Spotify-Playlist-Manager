@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ORIGIN = "http://127.0.0.1:8765"
 CALLBACK = f"{ORIGIN}/callback"
+APP_NAME = "harmonia playlists"
 
 
 class Settings(BaseModel):

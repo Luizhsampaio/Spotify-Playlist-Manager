@@ -14,7 +14,13 @@ from music_curator.demo import PROTOTYPE_TRACKS, DemoCredentialStore
 from music_curator.managed_registry import ManagedPlaylistRecord, ManagedPlaylistRegistry
 from music_curator.models import Artist, SavedTrack
 from music_curator.playlist_preview import artist_playlists
-from music_curator.spotify import AUTH_SCOPES, CREATE_PLAYLIST_URL, TOKEN_URL
+from music_curator.spotify import (
+    AUTH_SCOPES,
+    CREATE_PLAYLIST_URL,
+    MANAGED_PLAYLIST_DESCRIPTION,
+    PREVIOUS_MANAGED_PLAYLIST_DESCRIPTION,
+    TOKEN_URL,
+)
 from music_curator.web import create_app
 
 PAGE = "/app/playlists"
@@ -29,6 +35,7 @@ class SyntheticPlaylist(TypedDict):
     in_library: NotRequired[bool]
     public: NotRequired[bool]
     collaborative: NotRequired[bool]
+    description: NotRequired[str | None]
 
 
 def field(html: str, name: str) -> str:
@@ -64,6 +71,7 @@ def playlist_json(playlist_id: str, playlist: SyntheticPlaylist) -> dict[str, ob
     return {
         "id": playlist_id,
         "name": playlist["name"],
+        "description": playlist.get("description"),
         "public": playlist.get("public", True),
         "collaborative": playlist.get("collaborative", False),
         "owner": {"id": playlist["owner"]},
@@ -133,6 +141,7 @@ def synthetic_spotify_app(
             payload = json.loads(request.read())
             assert payload["public"] is True
             assert payload["collaborative"] is False
+            assert payload["description"] == MANAGED_PLAYLIST_DESCRIPTION
             next_id += 1
             playlist_id = f"syntheticPlaylist{next_id}"
             while playlist_id in state:
@@ -142,6 +151,7 @@ def synthetic_spotify_app(
                 "name": payload["name"],
                 "owner": "syntheticAccount",
                 "items": [],
+                "description": payload["description"],
             }
             if timeout_pending:
                 timeout_pending = False
@@ -157,7 +167,10 @@ def synthetic_spotify_app(
                 if request.method == "GET":
                     return httpx.Response(200, json=playlist_json(playlist_id, playlist))
                 assert request.method == "PUT"
-                playlist["name"] = json.loads(request.read())["name"]
+                payload = json.loads(request.read())
+                playlist["name"] = payload["name"]
+                if "description" in payload:
+                    playlist["description"] = payload["description"]
                 return httpx.Response(200)
             if request.method == "GET":
                 return httpx.Response(
@@ -1337,3 +1350,132 @@ def test_background_refresh_failure_reports_error_and_retains_complete_collectio
         assert "synthetic-private-response" not in result.text
         assert path.read_bytes() == before
         assert playlist_writes(calls) == []
+
+
+@pytest.mark.parametrize(
+    "description", [None, "Null", "", "  ", "null", PREVIOUS_MANAGED_PLAYLIST_DESCRIPTION]
+)
+def test_configure_fills_managed_description_and_preserves_playlist_id(
+    tmp_path: Path, description: str | None
+) -> None:
+    path = tmp_path / "managed.json"
+    browser, remote, calls = synthetic_spotify_app(path)
+    group = artist_playlists(PROTOTYPE_TRACKS).playlists[0]
+    with browser:
+        assert post_preview(browser, [group.key]).status_code == 200
+        remote["syntheticPlaylist1"]["description"] = description
+        calls.clear()
+        assert browser.get(PAGE).status_code == 200
+        assert remote["syntheticPlaylist1"]["description"] == description
+        assert playlist_writes(calls) == []
+        result = post_preview(browser, [group.key])
+        assert result.status_code == 200
+        assert "Todas as faixas foram confirmadas" in result.text
+        assert remote["syntheticPlaylist1"]["description"] == MANAGED_PLAYLIST_DESCRIPTION
+        assert len(remote) == 1
+        assert calls.count(("PUT", "/v1/playlists/syntheticPlaylist1")) == 1
+        record = ManagedPlaylistRegistry(path).records_for("syntheticAccount")[group.key]
+        assert record.playlist_id == "syntheticPlaylist1"
+        calls.clear()
+        assert post_preview(browser, [group.key]).status_code == 200
+        assert playlist_writes(calls) == []
+
+
+def test_custom_description_is_preserved_even_when_name_is_updated(tmp_path: Path) -> None:
+    browser, remote, calls = synthetic_spotify_app(tmp_path / "managed.json")
+    group = artist_playlists(PROTOTYPE_TRACKS).playlists[0]
+    with browser:
+        assert post_preview(browser, [group.key]).status_code == 200
+        remote["syntheticPlaylist1"]["description"] = "Texto personalizado pelo usuario"
+        calls.clear()
+        unchanged = post_preview(browser, [group.key])
+        assert unchanged.status_code == 200
+        assert playlist_writes(calls) == []
+        remote["syntheticPlaylist1"]["name"] = "Outro nome"
+        renamed = post_preview(browser, [group.key])
+        assert renamed.status_code == 200
+        assert "Todas as faixas foram confirmadas" in renamed.text
+        assert remote["syntheticPlaylist1"]["name"] == group.name
+        assert remote["syntheticPlaylist1"]["description"] == "Texto personalizado pelo usuario"
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    ["rejected", "timeout", "timeout_applied", "not_applied", "verify_failed", "owner_changed"],
+)
+def test_description_update_is_verified_without_blind_retry(tmp_path: Path, outcome: str) -> None:
+    updating = False
+    metadata_sent = False
+
+    def override(request: httpx.Request) -> httpx.Response | None:
+        nonlocal metadata_sent
+        if not updating or request.url.path != "/v1/playlists/syntheticPlaylist1":
+            return None
+        if request.method == "PUT":
+            metadata_sent = True
+            if outcome == "rejected":
+                return httpx.Response(400)
+            if outcome == "not_applied":
+                return httpx.Response(200)
+            if outcome in {"timeout", "timeout_applied"}:
+                if outcome == "timeout_applied":
+                    remote["syntheticPlaylist1"]["description"] = MANAGED_PLAYLIST_DESCRIPTION
+                    remote["syntheticPlaylist1"]["name"] = group.name
+                raise httpx.ReadTimeout("synthetic private error, never display")
+            if outcome == "owner_changed":
+                remote["syntheticPlaylist1"]["owner"] = "otherAccount"
+        elif metadata_sent and outcome == "verify_failed":
+            return httpx.Response(500)
+        return None
+
+    path = tmp_path / "managed.json"
+    browser, remote, calls = synthetic_spotify_app(path, override=override)
+    group = artist_playlists(PROTOTYPE_TRACKS).playlists[0]
+    with browser:
+        assert post_preview(browser, [group.key]).status_code == 200
+        remote["syntheticPlaylist1"]["description"] = None
+        remote["syntheticPlaylist1"]["name"] = "Nome anterior"
+        remote["syntheticPlaylist1"]["items"].append("syntheticManualTrack")
+        updating = True
+        calls.clear()
+        result = post_preview(browser, [group.key])
+        assert result.status_code == 200
+        assert calls.count(("PUT", "/v1/playlists/syntheticPlaylist1")) == 1
+        assert ("POST", "/v1/me/playlists") not in calls
+        assert "synthetic private error" not in result.text
+        if outcome == "timeout_applied":
+            assert "Todas as faixas foram confirmadas" in result.text
+            assert remote["syntheticPlaylist1"]["description"] == MANAGED_PLAYLIST_DESCRIPTION
+        else:
+            assert "Parcial" in result.text
+            assert "Todas as faixas foram confirmadas" not in result.text
+            assert remote["syntheticPlaylist1"]["items"][-1] == "syntheticManualTrack"
+            assert ("PUT", "/v1/playlists/syntheticPlaylist1/items") not in calls
+        assert ManagedPlaylistRegistry(path).records_for("syntheticAccount")[
+            group.key
+        ].playlist_id == ("syntheticPlaylist1")
+
+
+def test_creation_with_null_description_preserves_id_and_confirms_metadata(tmp_path: Path) -> None:
+    cleared = False
+
+    def override(request: httpx.Request) -> httpx.Response | None:
+        nonlocal cleared
+        if (
+            request.method == "GET"
+            and request.url.path == "/v1/playlists/syntheticPlaylist1"
+            and not cleared
+        ):
+            cleared = True
+            remote["syntheticPlaylist1"]["description"] = None
+        return None
+
+    browser, remote, calls = synthetic_spotify_app(tmp_path / "managed.json", override=override)
+    key = artist_playlists(PROTOTYPE_TRACKS).playlists[0].key
+    with browser:
+        result = post_preview(browser, [key])
+        assert result.status_code == 200
+        assert "Todas as faixas foram confirmadas" in result.text
+        assert calls.count(("POST", "/v1/me/playlists")) == 1
+        assert calls.count(("PUT", "/v1/playlists/syntheticPlaylist1")) == 1
+        assert remote["syntheticPlaylist1"]["description"] == MANAGED_PLAYLIST_DESCRIPTION

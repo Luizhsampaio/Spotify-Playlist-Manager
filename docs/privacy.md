@@ -79,6 +79,15 @@ Para artistas selecionados, a playlist pública registrada é sincronizada para
 espelhar exatamente as faixas elegíveis da coleção atual, o que também remove
 faixas adicionadas manualmente ou que já não estejam nas Músicas Curtidas. A
 conclusão integral só é apresentada após ler e comparar todos os IDs de faixa.
+As playlists vinculadas também recebem uma descrição padrão do Harmonia Playlist
+Management (HPM).
+A descrição padrão é enviada ao Spotify na criação e reconciliada no próximo
+salvamento explícito quando ausente, vazia, com "Null" ou igual ao padrão anterior do app. Textos personalizados
+já preenchidos são preservados.
+Ela identifica o Harmonia Playlist Management (HPM) e orienta evitar edições manuais,
+sem incluir credenciais, email,
+ID da conta ou dados adicionais da biblioteca. Como a playlist é pública, essa
+descrição pode ser vista por outras pessoas.
 Artistas desmarcados têm a playlist removida apenas de **Sua Biblioteca** por
 `user-library-modify`; a playlist pública não é excluída e pode continuar acessível
 por link, mas o ID local é apagado após confirmação. Selecionar o artista novamente

@@ -1,5 +1,5 @@
 {% extends "prototype_base.html" %}
-{% block title %}Entrar — Curador Musical{% endblock %}
+{% block title %}Entrar — {{ app_name }}{% endblock %}
 {% block body_class %}login-page{% endblock %}
 {% block body %}
 <header class="site-header wrap">{{ brand() }}<a class="text-link" href="/">Voltar para o início</a></header>
@@ -40,5 +40,5 @@
     </ul>
   </section>
 </main>
-<footer class="login-footer caption">Curador Musical · {{ "Protótipo de experiência · Sem conexão real com o Spotify" if demo else "Aplicação local · Sem alterações no Spotify" }}</footer>
+<footer class="login-footer caption">{{ app_name }} · {{ "Protótipo de experiência · Sem conexão real com o Spotify" if demo else "Aplicação local · Sem alterações no Spotify" }}</footer>
 {% endblock %}

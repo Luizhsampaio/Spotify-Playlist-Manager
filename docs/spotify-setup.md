@@ -8,10 +8,14 @@
 
 ## Criar o aplicativo
 
+Se o aplicativo já estiver cadastrado, testar o nome harmonia playlists na interface local
+não exige criar outro Client ID. Para mudar também o nome mostrado pelo Spotify
+na autorização, altere o nome do aplicativo existente no Developer Dashboard.
+
 1. Acesse o [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
    e entre com sua conta Spotify.
 2. Escolha **Create app**. Os nomes dos campos podem variar conforme o painel.
-3. Use um nome descritivo, por exemplo **Curador Musical Pessoal**.
+3. Use um nome descritivo, por exemplo **harmonia playlists**.
 4. Descreva o uso: aplicação pessoal local para visualizar Músicas Curtidas e playlists.
 5. Selecione **Web API** entre as APIs utilizadas.
 6. Cadastre exatamente este **Redirect URI**:

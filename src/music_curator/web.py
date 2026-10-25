@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from music_curator.config import ORIGIN, Settings
+from music_curator.config import APP_NAME, ORIGIN, Settings
 from music_curator.credentials import CredentialStore, WindowsCredentialStore
 from music_curator.demo import PROTOTYPE_TRACKS
 from music_curator.library import SongFilters, song_collection
@@ -33,6 +33,7 @@ from music_curator.managed_registry import (
 )
 from music_curator.models import (
     AppError,
+    ManagedPlaylistDetails,
     MutationOutcomeUnknown,
     Playlist,
     PlaylistMutationResult,
@@ -40,7 +41,11 @@ from music_curator.models import (
     SavedTrack,
 )
 from music_curator.playlist_preview import ArtistPlaylist, artist_playlists
-from music_curator.spotify import SpotifyClient
+from music_curator.spotify import (
+    MANAGED_PLAYLIST_DESCRIPTION,
+    PREVIOUS_MANAGED_PLAYLIST_DESCRIPTION,
+    SpotifyClient,
+)
 
 BASE = Path(__file__).parent
 COOKIE = "curator_session"
@@ -212,6 +217,17 @@ def _playlist_result(
     )
 
 
+def _managed_destination_matches(
+    details: ManagedPlaylistDetails, account_id: str, record: ManagedPlaylistRecord
+) -> bool:
+    return (
+        details.owner.id == account_id
+        and details.owner.id == record.owner_id
+        and details.public is True
+        and not details.collaborative
+    )
+
+
 async def _manage_selected_artist(
     client: SpotifyClient,
     registry: ManagedPlaylistRegistry,
@@ -301,12 +317,7 @@ async def _manage_selected_artist(
             str(exc),
             playlist_id,
         )
-    if (
-        details.owner.id != account_id
-        or details.owner.id != record.owner_id
-        or details.public is not True
-        or details.collaborative
-    ):
+    if not _managed_destination_matches(details, account_id, record):
         return _playlist_result(
             artist_key,
             group.name,
@@ -315,28 +326,45 @@ async def _manage_selected_artist(
             "Nenhuma alteracao foi feita.",
             playlist_id,
         )
-    if details.name != group.name:
+    needs_standard_description = (
+        details.description is None
+        or details.description.strip().casefold() in {"", "null"}
+        or details.description == PREVIOUS_MANAGED_PLAYLIST_DESCRIPTION
+    )
+    expected_description = (
+        MANAGED_PLAYLIST_DESCRIPTION if needs_standard_description else details.description
+    )
+    if details.name != group.name or needs_standard_description:
+        metadata_error: AppError | None = None
         try:
-            await client.rename_public_playlist(playlist_id, group.name)
+            await client.update_public_playlist_details(
+                playlist_id,
+                group.name,
+                description=MANAGED_PLAYLIST_DESCRIPTION if needs_standard_description else None,
+            )
         except AppError as exc:
-            try:
-                details = await client.get_managed_playlist(playlist_id)
-            except AppError:
-                return _playlist_result(
-                    artist_key,
-                    group.name,
-                    "partial",
-                    f"Nao foi possivel confirmar a atualizacao do nome. {exc}",
-                    playlist_id,
-                )
-            if details.name != group.name:
-                return _playlist_result(
-                    artist_key,
-                    group.name,
-                    "partial",
-                    f"O Spotify nao confirmou o nome esperado. {exc}",
-                    playlist_id,
-                )
+            metadata_error = exc
+        try:
+            details = await client.get_managed_playlist(playlist_id)
+        except AppError as exc:
+            message = f"Nao foi possivel confirmar o nome e a descricao da playlist. {exc}"
+            if metadata_error is not None:
+                message += f" {metadata_error}"
+            return _playlist_result(artist_key, group.name, "partial", message, playlist_id)
+        if not _managed_destination_matches(details, account_id, record):
+            return _playlist_result(
+                artist_key,
+                group.name,
+                "partial",
+                "A propriedade ou visibilidade mudou durante a verificacao. "
+                "Nenhuma faixa foi alterada.",
+                playlist_id,
+            )
+        if details.name != group.name or details.description != expected_description:
+            message = "O Spotify nao confirmou o nome e a descricao esperados."
+            if metadata_error is not None:
+                message += f" {metadata_error}"
+            return _playlist_result(artist_key, group.name, "partial", message, playlist_id)
     expected_ids = [track.id for track in group.tracks]
     if any(track_id is None for track_id in expected_ids):
         raise AppError("Uma faixa selecionada nao possui ID Spotify valido.")
@@ -421,12 +449,7 @@ async def _remove_deselected_artist(
             "O registro nao contem um ID verificavel.",
         )
     details = await client.get_managed_playlist(playlist_id)
-    if (
-        details.owner.id != account_id
-        or details.owner.id != record.owner_id
-        or details.public is not True
-        or details.collaborative
-    ):
+    if not _managed_destination_matches(details, account_id, record):
         return _playlist_result(
             record.artist_key,
             record.artist_name,
@@ -493,6 +516,7 @@ def create_app(
     connection_version = 0
     playlist_operation_lock = asyncio.Lock()
     templates = Jinja2Templates(directory=BASE / "templates")
+    templates.env.globals["app_name"] = APP_NAME
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

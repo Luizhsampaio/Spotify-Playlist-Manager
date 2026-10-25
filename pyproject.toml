@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "music-curator"
 version = "0.1.0"
-description = "Curadoria musical pessoal: conexao local e leitura de playlists."
+description = "harmonia playlists: curadoria musical pessoal e playlists gerenciadas localmente."
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115,<1",
