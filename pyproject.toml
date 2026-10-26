@@ -9,7 +9,7 @@ description = "Curadoria musical pessoal: conexao local e leitura de playlists."
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115,<1",
-    "httpx>=0.28,<1",
+    "httpx>=0.28.1,<1",
     "jinja2>=3.1.6,<4",
     "keyring>=25,<26",
     "pydantic>=2.10,<3",
