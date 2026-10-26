@@ -121,7 +121,7 @@ def test_cover_rendering_keeps_library_read_only_and_tokens_out_of_images(kind: 
     with TestClient(app, base_url=ORIGIN) as browser:
         page = browser.get("/app/musicas")
         assert page.status_code == 200
-        assert "1 música importada" in page.text
+        assert "músicas importadas" not in page.text
         csp = page.headers["content-security-policy"]
         assert "img-src 'self' https://i.scdn.co/image/;" in csp
         assert "script-src 'self';" in csp

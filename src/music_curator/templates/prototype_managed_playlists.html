@@ -158,12 +158,9 @@
 {% endif %}
 <section class="managed-playlists" aria-labelledby="managed-playlists-title">
   <div class="section-intro">
-    <div><h2 id="managed-playlists-title">Suas playlists</h2>
-      <p>{{ managed_playlists | length }} {{ "playlist gerenciada" if managed_playlists | length == 1 else "playlists gerenciadas" }}</p>
-    </div>
+    <div><h2 id="managed-playlists-title">Suas playlists</h2></div>
   </div>
   {% if managed_playlists %}
-  <p class="table-hint">Em telas pequenas, deslize a tabela para ver todas as colunas.</p>
   <div class="managed-playlists-table-wrap" role="region" aria-label="Playlists gerenciadas" tabindex="0">
     <table class="managed-playlists-table">
       <caption class="visually-hidden">Playlists gerenciadas registradas para esta conta</caption>

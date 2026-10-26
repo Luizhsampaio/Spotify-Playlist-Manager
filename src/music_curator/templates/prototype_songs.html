@@ -36,8 +36,7 @@
 <section class="songs-library" aria-labelledby="songs-list-title">
   <div class="section-intro">
     <div><h2 id="songs-list-title">Sua coleção</h2>
-      <p>{{ tracks | length }} {{ "música importada" if tracks | length == 1 else "músicas importadas" }}{{ " · Dados fictícios" if demo else "" }}</p></div>
-    <span class="subtle-tag">Disponível nesta sessão</span>
+    </div>
   </div>
   {% if import_failed %}<p class="feedback" role="status">A atualização falhou. Exibindo a última importação concluída, sem incorporar resultados parciais.</p>{% endif %}
   <div class="songs-collection-card">
@@ -87,7 +86,6 @@
   {% elif not collection.tracks %}
   <div class="empty-workspace"><h3>Nenhuma música corresponde aos filtros.</h3><p>Altere a busca ou limpe os filtros para ver sua coleção completa.</p></div>
   {% else %}
-  <p class="table-hint">Em telas pequenas, deslize a tabela para ver todas as colunas.</p>
   <div class="songs-table-wrap" role="region" aria-label="Músicas importadas" tabindex="0">
     <table class="songs-table">
       <caption class="visually-hidden">Músicas Curtidas importadas {{ "da demonstração" if demo else "do Spotify" }}</caption>
@@ -122,15 +120,10 @@
       </tbody>
     </table>
   </div>
-  <p class="library-privacy">Data de lançamento do álbum informada pelo Spotify. Quando há apenas ano ou mês, essa precisão é preservada.</p>
   {% endif %}
   </div>
 </section>
 {% endif %}
-<p class="library-privacy">A importação percorre todas as páginas retornadas pelo Spotify. Os dados ficam apenas
-  na memória desta sessão e são descartados ao sair, desconectar, expirar a sessão ou reiniciar o servidor.
-  A coleção é carregada ao entrar no aplicativo. Use “Atualizar músicas” para buscar mudanças feitas depois;
-  não há sincronização contínua.</p>
 {% endblock %}
 {% block scripts %}
 <script src="/static/album-covers.js" defer></script>

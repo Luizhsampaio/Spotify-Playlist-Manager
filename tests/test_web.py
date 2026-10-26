@@ -311,7 +311,7 @@ def test_real_login_loads_songs_once_and_navigation_reuses_collection(
         assert "Conexao salva com seguranca" in response.text
         assert response.headers["referrer-policy"] == "same-origin"
         songs = client.get("/app/musicas")
-        assert "6 músicas importadas" in songs.text
+        assert "músicas importadas" not in songs.text
         assert "Atualizar músicas" in songs.text
         for path in ["/", "/entrar", "/app"]:
             page = client.get(path)
@@ -326,6 +326,9 @@ def test_real_login_loads_songs_once_and_navigation_reuses_collection(
         assert "A criação no Spotify ainda não está habilitada" in dashboard.text
         assert "não comprova" not in dashboard.text
         assert "<strong>Aplicação local.</strong>" not in dashboard.text
+        assert "Somente leitura · Biblioteca em memória, sem envio para IA." not in dashboard.text
+        assert "harmonia playlists · Aplicação local" not in dashboard.text
+        assert 'class="dashboard-footer"' not in dashboard.text
         assert 'class="demo-banner"' not in dashboard.text
         assert "Conta de demonstração" not in dashboard.text
         assert "Modo protótipo" not in dashboard.text
@@ -363,7 +366,7 @@ def test_saved_connection_opens_dashboard_and_loads_library_once(
         assert calls == []
         assert client.get("/entrar").url.path == "/app"
         assert "conexão salva" in client.get("/app").text
-        assert "6 músicas importadas" in client.get("/app/musicas").text
+        assert "músicas importadas" not in client.get("/app/musicas").text
         assert calls == ["/api/token", "/v1/me/tracks"]
 
 

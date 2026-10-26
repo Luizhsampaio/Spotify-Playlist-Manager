@@ -41,6 +41,20 @@ def test_filter_selects_support_local_search_with_native_fallback(prototype: Tes
     assert "innerHTML" not in script.text
 
 
+def test_songs_table_scrolls_vertically_without_truncating_the_collection(
+    prototype: TestClient,
+) -> None:
+    enter_demo(prototype)
+    page = prototype.get("/app/musicas")
+    stylesheet = prototype.get("/static/prototype.css")
+
+    assert page.status_code == 200
+    assert 'class="songs-table-wrap" role="region"' in page.text
+    assert page.text.count('class="song-row"') == len(PROTOTYPE_TRACKS)
+    assert stylesheet.status_code == 200
+    assert ".songs-table-wrap { max-height: min(520px, 65vh); overflow: auto; }" in stylesheet.text
+
+
 def test_songs_require_connection(browser: TestClient) -> None:
     page = browser.get("/app/musicas", follow_redirects=False)
     assert page.status_code == 303
@@ -68,9 +82,10 @@ def test_page_loads_once_automatically_with_saved_connection(store: DemoCredenti
         assert "<h1>Minhas Músicas" in page.text
         assert 'href="/app/musicas" class="active" aria-current="page"' in page.text
         assert "Atualizar músicas" in page.text
-        assert "6 músicas importadas" in page.text
+        assert "músicas importadas" not in page.text
+        assert page.text.count('class="song-row"') == 6
         assert browser.get("/app").status_code == 200
-        assert "6 músicas importadas" in browser.get("/app/musicas").text
+        assert "músicas importadas" not in browser.get("/app/musicas").text
         assert calls == ["/api/token", "/v1/me/tracks"]
 
 
@@ -102,7 +117,8 @@ def test_automatic_loading_is_once_per_session_even_with_empty_library(empty: bo
             assert browser.get(path).status_code == 200
         assert reads == 1
         page = browser.get("/app/musicas")
-        assert ("0 músicas importadas" if empty else "6 músicas importadas") in page.text
+        assert "músicas importadas" not in page.text
+        assert page.text.count('class="song-row"') == (0 if empty else 6)
         assert "Atualizar músicas" in page.text
 
 
@@ -147,7 +163,7 @@ def test_failed_auto_import_is_explicit_and_does_not_retry_on_navigation(status:
             fail = False
             page = browser.post(IMPORT, data={"csrf": csrf(browser)}, headers=HEADERS)
             assert page.status_code == 200
-            assert "6 músicas importadas" in page.text
+            assert "músicas importadas" not in page.text
             assert "A importação não foi concluída" not in page.text
             assert len(calls) == len(before) + 1
             assert browser.get("/app").status_code == 200
@@ -210,9 +226,9 @@ def test_concurrent_initial_navigation_only_imports_once() -> None:
                     browser.get("/app"), browser.get("/app/musicas")
                 )
                 assert first.status_code == second.status_code == 200
-                assert "6 músicas importadas" in second.text
+                assert "músicas importadas" not in second.text
                 assert reads == 1
-                assert "6 músicas importadas" in (await browser.get("/app/musicas")).text
+                assert "músicas importadas" not in (await browser.get("/app/musicas")).text
                 assert reads == 1
 
     asyncio.run(scenario())
@@ -314,7 +330,7 @@ def test_songs_omits_removed_banners(demo: bool, imported: bool) -> None:
         assert "Ver a Home" not in page.text
         assert "<h1>Minhas Músicas" in page.text
         assert 'action="/app/musicas/importar"' in page.text
-        assert "6 músicas importadas" in page.text
+        assert "músicas importadas" not in page.text
         assert 'class="songs-table"' in page.text
         assert "Atualizar músicas" in page.text
         dashboard = browser.get("/app")
@@ -330,7 +346,8 @@ def test_import_lists_tracks_and_survives_navigation(
     page = browser.post(IMPORT, data={"csrf": csrf(browser)}, headers=HEADERS)
     assert page.status_code == 200
     assert page.url.path == "/app/musicas"
-    assert "6 músicas importadas" in page.text
+    assert "músicas importadas" not in page.text
+    assert page.text.count('class="song-row"') == 6
     for item in PROTOTYPE_TRACKS:
         assert item.track is not None
         assert item.track.name in page.text
@@ -344,11 +361,11 @@ def test_import_lists_tracks_and_survives_navigation(
     assert page.headers["cache-control"] == "no-store"
     assert "Atualizar músicas" in page.text
     browser.get("/app")
-    assert "6 músicas importadas" in browser.get("/app/musicas").text
+    assert "músicas importadas" not in browser.get("/app/musicas").text
     browser.post("/disconnect", data={"csrf": csrf(browser)}, headers=HEADERS)
     store.save("synthetic-new-account")
     page = browser.get("/app/musicas")
-    assert "6 músicas importadas" in page.text
+    assert "músicas importadas" not in page.text
     assert "Atualizar músicas" in page.text
 
 
@@ -386,7 +403,7 @@ def test_screen_contains_every_song_across_multiple_pages() -> None:
     with TestClient(app, base_url=ORIGIN) as browser:
         page = browser.get("/app/musicas")
         assert page.status_code == 200
-        assert "125 músicas importadas" in page.text
+        assert "músicas importadas" not in page.text
         assert page.text.count('class="song-row"') == 125
         for index in range(125):
             assert f">Faixa sintetica {index}</a>" in page.text
@@ -401,7 +418,7 @@ def test_reauthorizing_clears_imports_in_all_browser_sessions(
     filter_songs(browser, year="2024")
     with TestClient(browser.app, base_url=ORIGIN) as other:
         other.post(IMPORT, data={"csrf": csrf(other)}, headers=HEADERS)
-        assert "6 músicas importadas" in other.get("/app/musicas").text
+        assert "músicas importadas" not in other.get("/app/musicas").text
         response = browser.post(
             "/connect", data={"csrf": csrf(browser)}, headers=HEADERS, follow_redirects=False
         )
@@ -435,15 +452,15 @@ def test_import_requires_csrf_and_same_origin(
 def test_demo_import_is_synthetic_and_isolated(prototype: TestClient) -> None:
     enter_demo(prototype)
     page = prototype.get("/app/musicas")
-    assert "6 músicas importadas · Dados fictícios" in page.text
+    assert "músicas importadas" not in page.text
     assert "Horizonte de papel" in page.text
     assert "open.spotify.com/track/" not in page.text
     with TestClient(prototype.app, base_url=ORIGIN) as other:
         enter_demo(other)
-        assert "6 músicas importadas" in other.get("/app/musicas").text
+        assert "músicas importadas" not in other.get("/app/musicas").text
     prototype.post("/demo/sair", data={"csrf": csrf(prototype)}, headers=HEADERS)
     enter_demo(prototype)
-    assert "6 músicas importadas" in prototype.get("/app/musicas").text
+    assert "músicas importadas" not in prototype.get("/app/musicas").text
 
 
 def test_import_is_blocked_before_demo_login(prototype: TestClient) -> None:
@@ -479,10 +496,10 @@ def test_songs_render_empty_unavailable_and_escaped_values(kind: str) -> None:
         assert page.status_code == 200
         if kind == "empty":
             assert "Nenhuma música curtida encontrada" in page.text
-            assert "0 músicas importadas" in page.text
+            assert "músicas importadas" not in page.text
         elif kind == "unavailable":
             assert "Faixa indisponível" in page.text
-            assert "1 música importada" in page.text
+            assert "músicas importadas" not in page.text
             assert "Não informada" in page.text
         else:
             for value in ["song", "artist", "album"]:
@@ -517,12 +534,12 @@ def test_failed_refresh_keeps_previous_complete_import_without_partial_data() ->
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     with TestClient(app, base_url=ORIGIN) as browser:
-        assert "6 músicas importadas" in browser.get("/app/musicas").text
+        assert "músicas importadas" not in browser.get("/app/musicas").text
         page = browser.post(IMPORT, data={"csrf": csrf(browser)}, headers=HEADERS)
         assert page.status_code == 502
         assert 'role="alert"' in page.text
         assert "A atualização falhou" in page.text
-        assert "6 músicas importadas" in page.text
+        assert "músicas importadas" not in page.text
         assert "synthetic-partial-song" not in page.text
         assert "synthetic-private-response" not in page.text
 
@@ -560,7 +577,7 @@ def test_session_expiry_discards_imported_songs(
     monkeypatch.setattr("music_curator.web.time.monotonic", lambda: now + 9 * 60 * 60)
     assert prototype.get("/app/musicas").url.path == "/entrar"
     enter_demo(prototype)
-    assert "6 músicas importadas" in prototype.get("/app/musicas").text
+    assert "músicas importadas" not in prototype.get("/app/musicas").text
 
 
 def filter_songs(browser: TestClient, **fields: str) -> httpx.Response:
@@ -638,7 +655,7 @@ def test_combined_filters_persist_and_clear_without_losing_original(prototype: T
     assert page.url.query == b""
     assert 'name="q" maxlength="200" value="TRANQUILO"' in page.text
     assert "Mostrando 1 de 6 músicas" in page.text
-    assert "6 músicas importadas" in page.text
+    assert "músicas importadas" not in page.text
     assert page.text.count('class="song-row"') == 1
     assert "Um lugar tranquilo" in page.text
     assert "Horizonte de papel" not in page.text
@@ -662,7 +679,7 @@ def test_no_matches_is_distinct_from_empty_import(prototype: TestClient) -> None
     assert "Nenhuma música corresponde aos filtros" in page.text
     assert "Nenhuma música curtida encontrada" not in page.text
     assert "songs-table" not in page.text
-    assert "6 músicas importadas" in page.text
+    assert "músicas importadas" not in page.text
     assert "Mostrando 6 de 6 músicas" in filter_songs(prototype).text
 
 

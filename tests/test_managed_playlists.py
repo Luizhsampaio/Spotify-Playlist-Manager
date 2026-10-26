@@ -83,6 +83,7 @@ def post_sync_all(browser: TestClient) -> httpx.Response:
 
 def assert_playlist_listed(html: str, artist_name: str, playlist_id: str) -> None:
     assert "Resultado do último salvamento" not in html
+    assert not re.search(r"<p>\s*\d+ playlists? gerenciadas?\s*</p>", html)
     table_body = re.search(
         r'<table class="managed-playlists-table">.*?<tbody>(.*?)</tbody>',
         html,
@@ -771,6 +772,7 @@ def test_playlist_table_loads_all_records_from_registry_on_page_request(tmp_path
 
     assert page.status_code == 200
     assert "Resultado do último salvamento" not in page.text
+    assert "Em telas pequenas, deslize a tabela para ver todas as colunas." not in page.text
     table_body = re.search(
         r'<table class="managed-playlists-table">.*?<tbody>(.*?)</tbody>',
         page.text,
@@ -954,6 +956,81 @@ def test_deselection_removes_from_library_and_reselection_creates_new_playlist(
         assert restored_record.state == "active"
         assert restored_record.playlist_id is not None
         assert_playlist_listed(restored.text, group.name, restored_record.playlist_id)
+
+
+def test_new_playlist_uses_validated_create_response_when_details_get_is_invalid(
+    tmp_path: Path,
+) -> None:
+    def invalid_details(request: httpx.Request) -> httpx.Response | None:
+        if request.method == "GET" and request.url.path == "/v1/playlists/syntheticPlaylist1":
+            return httpx.Response(200, json={"id": "syntheticPlaylist1"})
+        return None
+
+    registry_path = tmp_path / "managed.json"
+    browser, playlists, calls = synthetic_spotify_app(registry_path, override=invalid_details)
+    group = artist_playlists(PROTOTYPE_TRACKS).playlists[0]
+
+    with browser:
+        page = browser.get(PAGE)
+        calls.clear()
+        result = post_preview(browser, [group.key], page.text)
+
+    assert result.status_code == 200
+    record = ManagedPlaylistRegistry(registry_path).records_for("syntheticAccount")[group.key]
+    assert record.playlist_id == "syntheticPlaylist1"
+    assert record.state == "active"
+    assert playlists[record.playlist_id]["items"] == [
+        track.id for track in group.tracks if track.id is not None
+    ]
+    metadata_read = calls.index(("GET", "/v1/playlists/syntheticPlaylist1"))
+    item_write = calls.index(("PUT", "/v1/playlists/syntheticPlaylist1/items"))
+    assert item_write < metadata_read
+
+
+def test_created_playlist_with_invalid_details_get_is_recovered_without_recreation(
+    tmp_path: Path,
+) -> None:
+    def invalid_details(request: httpx.Request) -> httpx.Response | None:
+        if request.method == "GET" and request.url.path == "/v1/playlists/syntheticPlaylist1":
+            return httpx.Response(200, json={"id": "syntheticPlaylist1"})
+        return None
+
+    registry_path = tmp_path / "managed.json"
+    browser, playlists, calls = synthetic_spotify_app(registry_path, override=invalid_details)
+    group = artist_playlists(PROTOTYPE_TRACKS).playlists[0]
+    playlists["syntheticPlaylist1"] = {
+        "name": group.name,
+        "owner": "syntheticAccount",
+        "items": [],
+        "description": MANAGED_PLAYLIST_DESCRIPTION,
+    }
+    ManagedPlaylistRegistry(registry_path).save_record(
+        "syntheticAccount",
+        ManagedPlaylistRecord(
+            artist_key=group.key,
+            artist_id=group.artist_id,
+            artist_name=group.name,
+            playlist_id="syntheticPlaylist1",
+            owner_id="syntheticAccount",
+            state="created",
+        ),
+    )
+
+    with browser:
+        page = browser.get(PAGE)
+        calls.clear()
+        result = post_preview(browser, [group.key], page.text)
+
+    assert result.status_code == 200
+    record = ManagedPlaylistRegistry(registry_path).records_for("syntheticAccount")[group.key]
+    assert record.state == "active"
+    assert playlists["syntheticPlaylist1"]["items"] == [
+        track.id for track in group.tracks if track.id is not None
+    ]
+    assert ("POST", "/v1/me/playlists") not in calls
+    metadata_read = calls.index(("GET", "/v1/playlists/syntheticPlaylist1"))
+    item_write = calls.index(("PUT", "/v1/playlists/syntheticPlaylist1/items"))
+    assert item_write < metadata_read
 
 
 def test_uncertain_library_removal_keeps_id_and_blocks_recreation(tmp_path: Path) -> None:
@@ -1485,7 +1562,8 @@ def test_refresh_button_is_between_cancel_and_configure_and_demo_stays_synthetic
     assert result.status_code == 200
     assert "data-open-on-load" in result.text
     assert selected_keys(result.text) == {key}
-    assert "ainda nao foram salvas" in result.text
+    assert "Músicas e artistas atualizados." in result.text
+    assert "As marcações ainda não foram salvas." not in result.text
 
 
 def test_refresh_updates_all_tracks_and_artists_without_saving_or_spotify_writes(
@@ -1511,7 +1589,7 @@ def test_refresh_updates_all_tracks_and_artists_without_saving_or_spotify_writes
         assert calls.count(("GET", "/v1/me/tracks")) == 1
         assert playlist_writes(calls) == []
         assert not path.exists()
-        assert f"{len(tracks)} músicas importadas" in browser.get("/app/musicas").text
+        assert "músicas importadas" not in browser.get("/app/musicas").text
 
 
 def test_refresh_preserves_unsaved_marks_and_existing_ids_until_configure(
@@ -1528,6 +1606,8 @@ def test_refresh_preserves_unsaved_marks_and_existing_ids_until_configure(
         calls.clear()
         updated = refresh_artists(browser, saved.text, keys[1:])
         assert updated.status_code == 200
+        assert "Músicas e artistas atualizados." in updated.text
+        assert "As marcações ainda não foram salvas." not in updated.text
         assert selected_keys(updated.text) == set(keys[1:])
         assert "Playlist ID: <span>syntheticPlaylist1</span>" in updated.text
         assert registry.selection_for("syntheticAccount") == set(keys[:1])
@@ -1815,26 +1895,18 @@ def test_description_update_is_verified_without_blind_retry(tmp_path: Path, outc
         ].playlist_id == ("syntheticPlaylist1")
 
 
-def test_creation_with_null_description_preserves_id_and_confirms_metadata(tmp_path: Path) -> None:
-    cleared = False
-
-    def override(request: httpx.Request) -> httpx.Response | None:
-        nonlocal cleared
-        if (
-            request.method == "GET"
-            and request.url.path == "/v1/playlists/syntheticPlaylist1"
-            and not cleared
-        ):
-            cleared = True
-            remote["syntheticPlaylist1"]["description"] = None
-        return None
-
-    browser, remote, calls = synthetic_spotify_app(tmp_path / "managed.json", override=override)
+def test_creation_uses_validated_response_without_details_read(tmp_path: Path) -> None:
+    browser, remote, calls = synthetic_spotify_app(tmp_path / "managed.json")
     group = artist_playlists(PROTOTYPE_TRACKS).playlists[0]
     with browser:
-        result = post_preview(browser, [group.key])
+        page = browser.get(PAGE)
+        calls.clear()
+        result = post_preview(browser, [group.key], page.text)
         assert result.status_code == 200
         assert_playlist_listed(result.text, group.name, "syntheticPlaylist1")
         assert calls.count(("POST", "/v1/me/playlists")) == 1
-        assert calls.count(("PUT", "/v1/playlists/syntheticPlaylist1")) == 1
+        assert calls.count(("PUT", "/v1/playlists/syntheticPlaylist1")) == 0
         assert remote["syntheticPlaylist1"]["description"] == MANAGED_PLAYLIST_DESCRIPTION
+        item_write = calls.index(("PUT", "/v1/playlists/syntheticPlaylist1/items"))
+        metadata_read = calls.index(("GET", "/v1/playlists/syntheticPlaylist1"))
+        assert item_write < metadata_read

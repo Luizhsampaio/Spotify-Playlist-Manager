@@ -157,6 +157,8 @@ async def _validate_playlist_save(
                 "continuar selecionado, ou voltar e desmarca-lo para encerrar o vinculo."
             )
             issue.missing = True
+        elif record.state == "created":
+            continue
         else:
             try:
                 details = await client.get_managed_playlist(record.playlist_id)
@@ -236,6 +238,7 @@ async def _manage_selected_artist(
     group: ArtistPlaylist,
     record: ManagedPlaylistRecord | None,
 ) -> PlaylistMutationResult:
+    details: ManagedPlaylistDetails | None = None
     if record is None:
         record = ManagedPlaylistRecord(
             artist_key=group.key,
@@ -275,6 +278,7 @@ async def _manage_selected_artist(
                 f"A playlist foi criada, mas o ID nao pode ser confirmado no registro local. {exc}",
                 created.id,
             )
+        details = created
     elif record.state in {"pending_create", "creation_uncertain"}:
         return _playlist_result(
             artist_key,
@@ -307,64 +311,79 @@ async def _manage_selected_artist(
         return _playlist_result(
             artist_key, group.name, "partial", "O registro nao contem um ID verificavel."
         )
-    try:
-        details = await client.get_managed_playlist(playlist_id)
-    except AppError as exc:
-        return _playlist_result(
-            artist_key,
-            group.name,
-            "partial" if record.state == "created" else "failed",
-            str(exc),
-            playlist_id,
-        )
-    if not _managed_destination_matches(details, account_id, record):
-        return _playlist_result(
-            artist_key,
-            group.name,
-            "failed",
-            "A playlist nao corresponde ao destino publico registrado. "
-            "Nenhuma alteracao foi feita.",
-            playlist_id,
-        )
-    needs_standard_description = (
-        details.description is None
-        or details.description.strip().casefold() in {"", "null"}
-        or details.description == PREVIOUS_MANAGED_PLAYLIST_DESCRIPTION
-    )
-    expected_description = (
-        MANAGED_PLAYLIST_DESCRIPTION if needs_standard_description else details.description
-    )
-    if details.name != group.name or needs_standard_description:
-        metadata_error: AppError | None = None
-        try:
-            await client.update_public_playlist_details(
-                playlist_id,
+    if record.state == "created":
+        if details is None and record.owner_id != account_id:
+            return _playlist_result(
+                artist_key,
                 group.name,
-                description=MANAGED_PLAYLIST_DESCRIPTION if needs_standard_description else None,
+                "failed",
+                "A playlist criada nao pertence a conta conectada. Nenhuma alteracao foi feita.",
+                playlist_id,
             )
-        except AppError as exc:
-            metadata_error = exc
+        if details is not None and not _managed_destination_matches(details, account_id, record):
+            return _playlist_result(
+                artist_key,
+                group.name,
+                "failed",
+                "A playlist nao corresponde ao destino publico registrado. "
+                "Nenhuma alteracao foi feita.",
+                playlist_id,
+            )
+    else:
         try:
             details = await client.get_managed_playlist(playlist_id)
         except AppError as exc:
-            message = f"Nao foi possivel confirmar o nome e a descricao da playlist. {exc}"
-            if metadata_error is not None:
-                message += f" {metadata_error}"
-            return _playlist_result(artist_key, group.name, "partial", message, playlist_id)
+            return _playlist_result(artist_key, group.name, "failed", str(exc), playlist_id)
         if not _managed_destination_matches(details, account_id, record):
             return _playlist_result(
                 artist_key,
                 group.name,
-                "partial",
-                "A propriedade ou visibilidade mudou durante a verificacao. "
-                "Nenhuma faixa foi alterada.",
+                "failed",
+                "A playlist nao corresponde ao destino publico registrado. "
+                "Nenhuma alteracao foi feita.",
                 playlist_id,
             )
-        if details.name != group.name or details.description != expected_description:
-            message = "O Spotify nao confirmou o nome e a descricao esperados."
-            if metadata_error is not None:
-                message += f" {metadata_error}"
-            return _playlist_result(artist_key, group.name, "partial", message, playlist_id)
+        needs_standard_description = (
+            details.description is None
+            or details.description.strip().casefold() in {"", "null"}
+            or details.description == PREVIOUS_MANAGED_PLAYLIST_DESCRIPTION
+        )
+        expected_description = (
+            MANAGED_PLAYLIST_DESCRIPTION if needs_standard_description else details.description
+        )
+        if details.name != group.name or needs_standard_description:
+            metadata_error: AppError | None = None
+            try:
+                await client.update_public_playlist_details(
+                    playlist_id,
+                    group.name,
+                    description=(
+                        MANAGED_PLAYLIST_DESCRIPTION if needs_standard_description else None
+                    ),
+                )
+            except AppError as exc:
+                metadata_error = exc
+            try:
+                details = await client.get_managed_playlist(playlist_id)
+            except AppError as exc:
+                message = f"Nao foi possivel confirmar o nome e a descricao da playlist. {exc}"
+                if metadata_error is not None:
+                    message += f" {metadata_error}"
+                return _playlist_result(artist_key, group.name, "partial", message, playlist_id)
+            if not _managed_destination_matches(details, account_id, record):
+                return _playlist_result(
+                    artist_key,
+                    group.name,
+                    "partial",
+                    "A propriedade ou visibilidade mudou durante a verificacao. "
+                    "Nenhuma faixa foi alterada.",
+                    playlist_id,
+                )
+            if details.name != group.name or details.description != expected_description:
+                message = "O Spotify nao confirmou o nome e a descricao esperados."
+                if metadata_error is not None:
+                    message += f" {metadata_error}"
+                return _playlist_result(artist_key, group.name, "partial", message, playlist_id)
     expected_ids = [track.id for track in group.tracks]
     if any(track_id is None for track_id in expected_ids):
         raise AppError("Uma faixa selecionada nao possui ID Spotify valido.")
@@ -918,9 +937,7 @@ def create_app(
                         selected = [key for key in selected if key in current_keys]
                         if account_id is not None:
                             records = registry.records_for(account_id)
-                        message = (
-                            "Musicas e artistas atualizados. As marcacoes ainda nao foram salvas."
-                        )
+                        message = "Músicas e artistas atualizados."
                         if removed_count:
                             message += (
                                 f" {removed_count} artista(s) marcado(s) nao estao mais "
